@@ -8,6 +8,9 @@ import { changeItemKind, createChildItem, enrollCalendarReminder, setNoteStatus,
 import { deleteTask, restoreTask } from "../src/task-registry";
 import { reconcileItemDraft } from "../src/data/draft-reconciliation";
 import { beginEditingSession } from "../src/editing-session";
+import { createTask } from "../src/task-registry";
+import { itemDateDay, itemDateTime, todayStr } from "../src/utils";
+import { sortItems } from "../src/item-order";
 
 const LEGACY_PATH = "_generated/tasks.json";
 
@@ -92,6 +95,69 @@ function snapshotBytes(raw: string, reason: "automatic" | "manual" | "pre-migrat
   return JSON.stringify({ version: 1, reason, createdAt, sourcePath, checksum: (hash >>> 0).toString(16).padStart(8, "0"), itemCount: JSON.parse(raw).items?.length ?? JSON.parse(raw).length ?? 0, raw });
 }
 
+test("event dates sort within a day alongside legacy days and preserve null completion ordering", () => {
+  const legacy = task("legacy");
+  const early = task("early");
+  const late = task("late");
+  early.date_created = new Date(2026, 8, 16, 9).getTime();
+  late.date_created = new Date(2026, 8, 16, 10).getTime();
+  assert.deepEqual(sortItems([late, legacy, early], "date_created", "asc").map(item => item._id), ["legacy", "early", "late"]);
+  assert.deepEqual(sortItems([early, legacy, late], "date_created", "desc").map(item => item._id), ["late", "early", "legacy"]);
+  early.date_completed = early.date_created;
+  late.date_completed = late.date_created;
+  assert.deepEqual(sortItems([late, legacy, early], "date_completed", "asc").map(item => item._id), ["legacy", "early", "late"]);
+  assert.deepEqual(sortItems([early, legacy, late], "date_completed", "desc").map(item => item._id), ["late", "early", "legacy"]);
+  assert.equal(itemDateDay(new Date(2026, 8, 16, 23, 59).getTime()), "2026-09-16");
+  assert.equal(itemDateDay(new Date(2026, 8, 17, 0, 1).getTime()), "2026-09-17");
+  assert.equal(itemDateDay("2026-09-16"), "2026-09-16");
+  assert.equal(itemDateDay(null), null);
+  assert.equal(itemDateTime("2026-09-16"), new Date(2026, 8, 16).getTime());
+});
+
+test("new events persist milliseconds, day checks remain local, and reminders remain dates", async () => {
+  const adapter = new MemoryAdapter();
+  const app = createApp(adapter) as never;
+  const before = Date.now();
+  const item = createTask("Timestamped", { date_remind: "2030-09-20" });
+  assert.equal(typeof item.date_created, "number");
+  assert.equal(item.date_created, item.date_modified);
+  assert.ok((item.date_created as number) >= before);
+  const store = new StateStore(app);
+  await store.addItem(item);
+  await setTaskStatus(app, item._id, "done");
+  let current = (await store.read()).items[0];
+  assert.equal(typeof current.date_completed, "number");
+  assert.equal(itemDateDay(current.date_completed), todayStr());
+  assert.equal(typeof current.date_modified, "number");
+  assert.equal(current.date_created, item.date_created);
+  assert.equal(current.date_remind, "2030-09-20");
+  await setTaskStatus(app, item._id, "open");
+  current = (await store.read()).items[0];
+  assert.equal(current.date_completed, null);
+  await changeItemKind(app, item._id, "note");
+  await setNoteStatus(app, item._id, "archived");
+  assert.equal(typeof (await store.read()).items[0].date_completed, "number");
+});
+
+test("schema 3 migration preserves legacy days and snapshots, and rejects invalid timestamps", async () => {
+  const adapter = new MemoryAdapter();
+  const original = JSON.stringify({ ...JSON.parse(state([task("legacy")])), schemaVersion: 3 });
+  adapter.files.set(STATE_PATH, original);
+  const store = new StateStore(createApp(adapter) as never);
+  assert.equal((await store.initialize()).migrated, true);
+  const current = await store.read();
+  assert.equal(current.schemaVersion, 4);
+  assert.equal(current.items[0].date_created, "2026-09-16");
+  const snapshot = (await store.listSnapshots()).find(entry => entry.reason === "pre-migration")!;
+  assert.equal(JSON.parse(await adapter.read(snapshot.path)).raw, original);
+  await store.restoreSnapshot(snapshot.path);
+  assert.equal((await store.read()).items[0].date_created, "2026-09-16");
+  for (const value of [NaN, Infinity, 1.5, 8640000000000001, "2026-02-30"]) {
+    const invalid = { ...current, items: [{ ...current.items[0], date_created: value }] };
+    assert.throws(() => validateState(invalid), StateValidationError);
+  }
+});
+
 test("schema validation rejects unsupported versions, malformed records, and cycles", () => {
   assert.throws(
     () => validateState({ schemaVersion: 99, revision: 0, writtenAt: "x", items: [] }),
@@ -101,7 +167,7 @@ test("schema validation rejects unsupported versions, malformed records, and cyc
   const malformed = task("one");
   malformed.kind = "note";
   assert.throws(
-    () => validateState({ schemaVersion: 3, revision: 0, writtenAt: "x", items: [malformed] }),
+    () => validateState({ schemaVersion: 4, revision: 0, writtenAt: "x", items: [malformed] }),
     /no lifecycle/,
   );
 
@@ -110,7 +176,7 @@ test("schema validation rejects unsupported versions, malformed records, and cyc
   first.parent_id = "second";
   second.parent_id = "first";
   assert.throws(
-    () => validateState({ schemaVersion: 3, revision: 0, writtenAt: "x", items: [first, second] }),
+    () => validateState({ schemaVersion: 4, revision: 0, writtenAt: "x", items: [first, second] }),
     StateValidationError,
   );
 });
@@ -193,7 +259,7 @@ test("schema 1 state is snapshotted before migration and calendar history requir
 
   assert.deepEqual(await store.initialize(), { migrated: true, itemCount: 1 });
   let current = (JSON.parse(await adapter.read(STATE_PATH)) as { schemaVersion: number; items: Task[] });
-  assert.equal(current.schemaVersion, 3);
+  assert.equal(current.schemaVersion, 4);
   assert.equal(current.items[0].calendar_reminder, undefined);
   assert.ok([...adapter.files.values()].some(bytes => {
     try { return (JSON.parse(bytes) as { raw?: string }).raw === original; }

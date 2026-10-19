@@ -1,6 +1,6 @@
 import type { CalendarIntegrationState, CalendarReminderHistory, CalendarReminderMutation, Task, TaskRegistry } from "../types";
 
-export const STATE_SCHEMA_VERSION = 3;
+export const STATE_SCHEMA_VERSION = 4;
 
 export interface StateMigrationProvenance {
   source: "legacy-tasks" | "state";
@@ -42,6 +42,11 @@ function isMetadataValue(value: unknown): boolean {
   if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") return true;
   if (Array.isArray(value)) return value.every(isMetadataValue);
   return isRecord(value) && Object.values(value).every(isMetadataValue);
+}
+
+function isItemDate(value: unknown): boolean {
+  return isDate(value) || (typeof value === "number" && Number.isSafeInteger(value) &&
+    Number.isFinite(new Date(value).getTime()));
 }
 
 function isTime(value: unknown): value is string {
@@ -135,8 +140,8 @@ function validateTask(task: unknown, ids: Set<string>): asserts task is Task {
   if (!["open", "done", "dismissed"].includes(task.status_completion as string)) throw new StateValidationError(`item ${task._id} has invalid lifecycle`);
   if (!["red", "regular"].includes(task.status_priority as string)) throw new StateValidationError(`item ${task._id} has invalid Today priority`);
   if (typeof task.is_today !== "boolean" || typeof task.is_deleted !== "boolean") throw new StateValidationError(`item ${task._id} has invalid membership or deletion state`);
-  if (!isDate(task.date_created) || !isDate(task.date_modified)) throw new StateValidationError(`item ${task._id} has invalid dates`);
-  if (task.date_completed !== null && !isDate(task.date_completed)) throw new StateValidationError(`item ${task._id} has invalid completion date`);
+  if (!isItemDate(task.date_created) || !isItemDate(task.date_modified)) throw new StateValidationError(`item ${task._id} has invalid dates`);
+  if (task.date_completed !== null && !isItemDate(task.date_completed)) throw new StateValidationError(`item ${task._id} has invalid completion date`);
   if (task.date_remind !== null && !isDate(task.date_remind)) throw new StateValidationError(`item ${task._id} has invalid reminder date`);
   if (task.reminder_time !== undefined && task.reminder_time !== null && !isTime(task.reminder_time)) {
     throw new StateValidationError(`item ${task._id} has invalid reminder time`);

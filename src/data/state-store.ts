@@ -108,7 +108,7 @@ function migratePersistedState(raw: string, path: string): MorningState | null {
     return null;
   }
   const sourceVersion = (parsed as { schemaVersion?: unknown }).schemaVersion;
-  if (sourceVersion !== 1 && sourceVersion !== 2) return null;
+  if (sourceVersion !== 1 && sourceVersion !== 2 && sourceVersion !== 3) return null;
   const candidate = JSON.parse(JSON.stringify(parsed)) as MorningState;
   candidate.schemaVersion = STATE_SCHEMA_VERSION;
   if (Array.isArray(candidate.items)) {
@@ -149,16 +149,16 @@ function normalizeLegacyTask(value: unknown): Record<string, unknown> {
   if (typeof task.is_today !== "boolean") task.is_today = task.in_today === true;
   if (typeof task.is_deleted !== "boolean") task.is_deleted = task.deleted === true;
   if (typeof task.parent_id !== "string") task.parent_id = null;
-  if (typeof task.date_created !== "string") task.date_created = task.created ?? todayStr();
-  if (typeof task.date_modified !== "string") task.date_modified = task.modified ?? task.date_created;
-  if (typeof task.date_completed !== "string") task.date_completed = task.completed ?? null;
+  if ((typeof task.date_created !== "string" && typeof task.date_created !== "number")) task.date_created = task.created ?? todayStr();
+  if ((typeof task.date_modified !== "string" && typeof task.date_modified !== "number")) task.date_modified = task.modified ?? task.date_created;
+  if ((typeof task.date_completed !== "string" && typeof task.date_completed !== "number")) task.date_completed = task.completed ?? null;
   if (typeof task.date_remind !== "string") task.date_remind = task.remind_date ?? null;
   if (task.kind === undefined) task.kind = "task";
   if (task.kind === "note") {
     const archived = task.status_note === "archived" || task.status_completion !== "open";
     task.status_note = archived ? "archived" : "active";
     task.status_completion = archived ? "done" : "open";
-    if (archived && typeof task.date_completed !== "string") task.date_completed = task.date_modified;
+    if (archived && (typeof task.date_completed !== "string" && typeof task.date_completed !== "number")) task.date_completed = task.date_modified;
   } else {
     delete task.status_note;
   }

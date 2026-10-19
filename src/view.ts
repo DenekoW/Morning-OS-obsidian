@@ -10,7 +10,7 @@ import { DailyBrief, Task, TaskRegistry, FieldDef, TabConfig, AreaConfig } from 
 import { MorningOSSettings } from "./settings";
 import type MorningOSPlugin from "./main";
 import { renderOnboarding } from "./onboarding";
-import { todayStr } from "./utils";
+import { todayStr, itemDateDay } from "./utils";
 import { loadRegistry, saveRegistry, setTaskStatus, setNoteStatus, updateTask, createTask, createNote, createChildItem, changeItemKind, moveTaskToToday, changeTodayPriority, removeTaskFromToday, setTaskReminder, deleteTask, restoreTask, purgeTask, getActiveReminders, getChildren, hasOpenChildren, promoteDueReminders, cloneItemDraft, saveItemDraft } from "./task-registry";
 import { appendWinToLog, readTodayWinsFromLog } from "./agent/vault-reader";
 import { parseIdentityAnchor } from "./agent/vault-reader";
@@ -333,10 +333,10 @@ export class MorningView extends ItemView {
     const today = todayStr();
     // A subtask nests under its parent's row only when the parent is also in Today —
     // otherwise it would never render at all, since it's excluded from top-level lists.
-    const eligible = (item: Task): boolean => isItemActive(item) || (item.kind === "task" && item.status_completion === "done" && item.date_completed === today);
+    const eligible = (item: Task): boolean => isItemActive(item) || (item.kind === "task" && item.status_completion === "done" && itemDateDay(item.date_completed) === today);
     const selectedRoots = (priority: "red" | "regular", done: boolean): Task[] => this.registry.filter(item =>
       item.is_today && !item.is_deleted && item.parent_id === null && item.status_priority === priority &&
-      (done ? item.status_completion === "done" && item.date_completed === today : isItemActive(item))
+      (done ? item.status_completion === "done" && itemDateDay(item.date_completed) === today : isItemActive(item))
     );
     const redOpen = selectedRoots("red", false);
     const regOpen = selectedRoots("regular", false);
@@ -434,7 +434,7 @@ export class MorningView extends ItemView {
   private renderRegistryTaskList(parent: HTMLElement, tasks: Task[]) {
     for (const task of tasks) {
       const children = getChildren(this.registry, task._id).filter(child => child.kind === "task" &&
-        (isItemActive(child) || (child.status_completion === "done" && child.date_completed === todayStr())));
+        (isItemActive(child) || (child.status_completion === "done" && itemDateDay(child.date_completed) === todayStr())));
       const row = parent.createDiv({ cls: "morning-os-task-row" });
 
       let childListEl: HTMLElement | null = null;
@@ -491,7 +491,7 @@ export class MorningView extends ItemView {
   private renderRegistryDoneList(parent: HTMLElement, tasks: Task[]) {
     for (const task of tasks) {
       const children = getChildren(this.registry, task._id).filter(child => child.kind === "task" &&
-        (isItemActive(child) || (child.status_completion === "done" && child.date_completed === todayStr())));
+        (isItemActive(child) || (child.status_completion === "done" && itemDateDay(child.date_completed) === todayStr())));
       const isArchivedNote = task.kind === "note" && task.status_note === "archived";
       const row = parent.createDiv({ cls: "morning-os-task-row" + (task.kind === "task" ? " morning-os-task-done" : "") + (isArchivedNote ? " mos-note-archived" : "") });
 
@@ -2712,7 +2712,7 @@ export class TrashView extends ItemView {
       const row = card.createDiv({ cls: "morning-os-task-row" + (task.kind === "task" ? " morning-os-task-done" : " mos-note-deleted") });
       if (task.kind === "note") row.createSpan({ cls: "mos-note-kind-icon", attr: { "aria-label": "Note", title: "Note" }, text: "📝" });
       renderMdContent(this.app, this, row, "span", "morning-os-task-text", task.text);
-      row.createSpan({ cls: "morning-os-reminder-badge", text: task.date_modified });
+      row.createSpan({ cls: "morning-os-reminder-badge", text: itemDateDay(task.date_modified) ?? "" });
       const deletedChildren = this.registry.filter(child => child.parent_id === task._id && child.is_deleted);
       if (deletedChildren.length > 0) {
         row.createSpan({ cls: "mos-notes-badge", attr: { title: `${deletedChildren.length} deleted child item${deletedChildren.length === 1 ? "" : "s"}` }, text: `+${deletedChildren.length}` });

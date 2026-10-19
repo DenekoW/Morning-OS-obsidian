@@ -121,9 +121,10 @@ export interface Task {
   status_urgency: "none" | "low" | "med" | "high";
   is_today: boolean;
   is_deleted: boolean;
-  date_created: string;
-  date_modified: string;
-  date_completed: string | null;
+  /** Unix milliseconds for new events; legacy YYYY-MM-DD values remain readable. */
+  date_created: number | string;
+  date_modified: number | string;
+  date_completed: number | string | null;
   date_remind: string | null;
   /** Optional wall time/zone. Null/omitted uses the committed integration policy. */
   reminder_time?: string | null;

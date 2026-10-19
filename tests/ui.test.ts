@@ -1305,7 +1305,7 @@ test("Today renders selected-root children without assigning them Today state an
   const doneToday = item("done-today");
   doneToday.parent_id = root._id;
   doneToday.status_completion = "done";
-  doneToday.date_completed = todayStr();
+  doneToday.date_completed = Date.now();
   const oldDone = item("old-done");
   oldDone.parent_id = root._id;
   oldDone.status_completion = "done";
@@ -1481,7 +1481,7 @@ test("completed Today roots retain the full menu and can be edited or removed wi
   const completed = item("completed-today-root");
   completed.is_today = true;
   completed.status_completion = "done";
-  completed.date_completed = todayStr();
+  completed.date_completed = Date.now();
   const open = item("open-today-root");
   open.is_today = true;
   const files = new Map([[STATE_PATH, stateBytes([completed, open])]]);

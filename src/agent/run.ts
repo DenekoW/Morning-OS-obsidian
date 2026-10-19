@@ -6,7 +6,7 @@ import { loadRegistry } from "../task-registry";
 import { callLLM } from "./llm";
 import { assembleBrief, LLMOutput } from "./assembler";
 import { INTELLIGENCE_SYSTEM, formatUserPrompt } from "./prompts";
-import { todayStr } from "../utils";
+import { todayStr, itemDateDay } from "../utils";
 
 const TECHNICAL_CONTEXT_LIMIT = 15;
 
@@ -76,7 +76,7 @@ export async function runAgent(app: App, settings: MorningOSSettings): Promise<A
   d.setDate(d.getDate() - 1);
   const yesterdayStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   const yesterdayCompleted = registry
-    .filter(t => t.status_completion === "done" && t.date_completed === yesterdayStr)
+    .filter(t => t.status_completion === "done" && itemDateDay(t.date_completed) === yesterdayStr)
     .map(t => t.text);
 
   // Direct briefing fields read all areas. Feed to LLM is applied separately

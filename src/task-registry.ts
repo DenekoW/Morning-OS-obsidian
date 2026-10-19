@@ -267,7 +267,7 @@ export function createTask(
   rawText: string,
   opts: Partial<Pick<Task, "status_priority" | "status_urgency" | "areas" | "tags" | "is_today" | "date_remind" | "parent_id">> = {}
 ): Task {
-  const today = todayStr();
+  const now = Date.now();
   const parsed = parseTagsFromText(rawText);
   return {
     _id: generateId(),
@@ -281,8 +281,8 @@ export function createTask(
     is_today: opts.is_today ?? false,
     is_deleted: false,
     parent_id: opts.parent_id ?? null,
-    date_created: today,
-    date_modified: today,
+    date_created: now,
+    date_modified: now,
     date_completed: null,
     date_remind: opts.date_remind !== undefined ? opts.date_remind : parsed.date_remind,
     kind: "task",
@@ -326,7 +326,7 @@ export async function changeItemKind(app: App, id: string, kind: ItemKind): Prom
     }
     item.kind = kind;
     if (!calendarReminderActive(item)) appendCalendarMutation(item, state);
-    item.date_modified = todayStr();
+    item.date_modified = Date.now();
   });
 }
 
@@ -337,9 +337,9 @@ export async function setNoteStatus(app: App, id: string, status: NoteStatus): P
     item.status_note = status;
     // Keep the legacy status field coherent for existing projections and exports.
     item.status_completion = status === "archived" ? "done" : "open";
-    item.date_completed = status === "archived" ? todayStr() : null;
+    item.date_completed = status === "archived" ? Date.now() : null;
     if (status === "archived") appendCalendarMutation(item, state);
-    item.date_modified = todayStr();
+    item.date_modified = Date.now();
   });
 }
 
@@ -364,7 +364,7 @@ export async function attachItemToParent(app: App, childId: string, parentId: st
     if (parent.parent_id !== null) throw new Error("a child cannot have children");
     if (child.is_deleted || parent.is_deleted) throw new Error("deleted items cannot be grouped");
     child.parent_id = parentId;
-    child.date_modified = todayStr();
+    child.date_modified = Date.now();
   });
 }
 
@@ -374,7 +374,7 @@ export async function detachItemFromParent(app: App, id: string): Promise<void> 
     const item = state.items.find(candidate => candidate._id === id);
     if (!item || item.parent_id === null) return;
     item.parent_id = null;
-    item.date_modified = todayStr();
+    item.date_modified = Date.now();
   });
 }
 
@@ -431,7 +431,7 @@ export async function enrollCalendarReminder(app: App, id: string, time: string,
     };
     const history: CalendarReminderHistory = { version: 1, providerAttempted: false, mutations: [mutation] };
     item.calendar_reminder = history;
-    item.date_modified = todayStr();
+    item.date_modified = Date.now();
   });
 }
 
@@ -454,7 +454,7 @@ export async function updateTask(app: App, id: string, patch: Partial<Task>): Pr
       const resetSchedule = "date_remind" in patch || "reminder_time" in patch || "reminder_time_zone" in patch;
       appendCalendarMutation(item, state, resetSchedule, !resetSchedule && !wasCalendarArmed && calendarReminderActive(item));
     }
-    item.date_modified = todayStr();
+    item.date_modified = Date.now();
   });
 }
 
@@ -497,7 +497,7 @@ export async function saveItemDraft(app: App, base: ItemDraft, draft: ItemDraft,
       const resetSchedule = "date_remind" in patch || "reminder_time" in patch || "reminder_time_zone" in patch;
       appendCalendarMutation(item, state, resetSchedule, !resetSchedule && !wasCalendarArmed && calendarReminderActive(item));
     }
-    item.date_modified = todayStr();
+    item.date_modified = Date.now();
   }, "edit item");
   return outcome;
 }
@@ -509,9 +509,9 @@ export async function setTaskStatus(app: App, id: string, status: CompletionStat
     const item = state.items.find(candidate => candidate._id === id);
     if (!item || item.kind === "note" || item.status_completion === status) return;
     item.status_completion = status;
-    item.date_completed = status === "done" ? todayStr() : null;
+    item.date_completed = status === "done" ? Date.now() : null;
     if (status !== "open") appendCalendarMutation(item, state);
-    item.date_modified = todayStr();
+    item.date_modified = Date.now();
   });
 }
 
@@ -521,7 +521,7 @@ export async function moveTaskToToday(app: App, id: string, priority: TodayPrior
     if (!item || (item.is_today && item.status_priority === priority)) return;
     item.is_today = true;
     item.status_priority = priority;
-    item.date_modified = todayStr();
+    item.date_modified = Date.now();
   });
 }
 
@@ -530,7 +530,7 @@ export async function changeTodayPriority(app: App, id: string, priority: TodayP
     const item = state.items.find(candidate => candidate._id === id);
     if (!item || !item.is_today || item.status_priority === priority) return;
     item.status_priority = priority;
-    item.date_modified = todayStr();
+    item.date_modified = Date.now();
   });
 }
 
@@ -543,7 +543,7 @@ export async function removeTaskFromToday(app: App, id: string): Promise<void> {
     if (occurrence && occurrence.handledToken === occurrence.token) {
       occurrence.dismissedToken = occurrence.token;
     }
-    task.date_modified = todayStr();
+    task.date_modified = Date.now();
   });
 }
 
@@ -553,7 +553,7 @@ export async function setTaskReminder(app: App, id: string, date: string | null)
     if (!task || task.date_remind === date) return;
     applyReminderDateChange(task, { date_remind: date });
     appendCalendarMutation(task, state, true);
-    task.date_modified = todayStr();
+    task.date_modified = Date.now();
   });
 }
 
@@ -568,7 +568,7 @@ export async function deleteTask(app: App, id: string): Promise<void> {
       task.is_today = false;
       task.deletion_batch_id = batch;
       appendCalendarMutation(task, state);
-      task.date_modified = todayStr();
+      task.date_modified = Date.now();
     }
     root.deleted_member_ids = affected.map(task => task._id);
   });
@@ -583,7 +583,7 @@ export async function restoreTask(app: App, id: string): Promise<void> {
     for (const task of state.items) {
       if (task.deletion_batch_id === batch && (task._id === id || task.parent_id === id)) {
         task.is_deleted = false;
-        task.date_modified = todayStr();
+        task.date_modified = Date.now();
       }
     }
   });
@@ -645,7 +645,7 @@ export async function promoteDueReminders(app: App): Promise<number> {
       }
       task.is_today = true;
       occurrence.handledToken = occurrence.token;
-      task.date_modified = today;
+      task.date_modified = Date.now();
       promoted++;
     }
   }, "promote-reminders");
