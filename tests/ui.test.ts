@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test, { type TestContext } from "node:test";
 import { Window } from "happy-dom";
-import { App, Component, TFile, WorkspaceLeaf } from "obsidian";
+import { AbstractInputSuggest, App, Component, TFile, WorkspaceLeaf } from "obsidian";
+import { TaskTextSuggest } from "../src/task-text-suggest";
 import { applyFilters, AreaView, DumpView, getChildOnlySearchMatches, MorningView, renderFilterSelects, renderTaskRowShared, sortItemsByStatus, attachInlineTextEdit, TaskEditModal } from "../src/view";
 import { beginEditingSession, disposeEditorsIn, hasActiveEditingSession, registerEditorCleanup } from "../src/editing-session";
 import type { AreaConfig, Task, TabConfig } from "../src/types";
@@ -60,6 +61,35 @@ function closeDom(t: TestContext, window: Window): void {
     await window.happyDOM.close();
   });
 }
+
+test("task autocomplete opens only for matching link or tag triggers", t => {
+  const window = installDom(390);
+  closeDom(t, window);
+  const file = Object.assign(new TFile("Project.md"), { basename: "Project" });
+  const app = Object.assign(new App(), {
+    vault: { getMarkdownFiles: () => [file] },
+    metadataCache: { getFileCache: () => ({ tags: [{ tag: "#work" }] }) },
+  });
+  const input = window.document.createElement("input") as unknown as HTMLInputElement;
+  window.document.body.appendChild(input);
+  const suggest = new TaskTextSuggest(app, input);
+  const open = t.mock.method(AbstractInputSuggest.prototype, "open");
+  const close = t.mock.method(AbstractInputSuggest.prototype, "close");
+  const tryOpen = (value: string): void => {
+    input.value = value;
+    input.setSelectionRange(value.length, value.length);
+    suggest.open();
+  };
+
+  for (const value of ["", "Buy milk", "[[missing", "#missing"]) tryOpen(value);
+  assert.equal(open.mock.callCount(), 0, "empty input, prose and unmatched triggers keep the popup closed");
+  assert.equal(close.mock.callCount(), 4);
+  for (const value of ["[[", "[[Pro", "#", "#wo"]) tryOpen(value);
+  assert.equal(open.mock.callCount(), 4, "link and tag autocomplete remain available");
+  tryOpen("Buy milk");
+  assert.equal(open.mock.callCount(), 4);
+  assert.equal(close.mock.callCount(), 5, "removing a trigger closes an existing popup");
+});
 
 function applyStyles(window: Window): void {
   window.document.querySelector("style[data-morning-os-test]")?.remove();

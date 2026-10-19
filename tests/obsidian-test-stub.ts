@@ -100,7 +100,9 @@ export class Setting {
   addDropdown(callback: (dropdown: DropdownComponent) => unknown): this { callback(new DropdownComponent()); return this; }
 }
 export class AbstractInputSuggest<T> {
-  constructor(_app: App, _inputEl: HTMLInputElement) {}
+  constructor(public app: App, _inputEl: HTMLInputElement) {}
+  open(): void {}
+  close(): void {}
   getSuggestions(_query: string): T[] { return []; }
   renderSuggestion(_value: T, _el: HTMLElement): void {}
   selectSuggestion(_value: T): void {}
