@@ -827,7 +827,7 @@ test("Area, table, and All Items status toggles preserve view state and preferen
   assert.equal(viewOptions.querySelector<HTMLSelectElement>('select[aria-label="Sort field"]')!.value, "name");
   assert.ok(shell.querySelector(".mos-subtask-list.is-collapsed"));
   assert.equal(groupSwitch.checked, false);
-  assert.equal(app.loadLocalStorage("mos-group-by-status-area-status-area"), false);
+  assert.equal((app.loadLocalStorage(`mos-view-options-v1-${JSON.stringify(["area", "status-area", null])}`) as { groupByStatus: boolean }).groupByStatus, false);
 
   const reopened = new AreaView(new WorkspaceLeaf(), plugin.settings as never, plugin as never, area.key);
   const reopenedInternals = reopened as unknown as { app: App; registry: Task[]; render: () => void; containerEl: HTMLElement };
@@ -887,9 +887,9 @@ test("Area, table, and All Items status toggles preserve view state and preferen
   const allGroupSwitch = allItemsShell.querySelector<HTMLInputElement>('input[aria-label="Group items by active status"]')!;
   allGroupSwitch.checked = false;
   allGroupSwitch.dispatchEvent(new window.Event("change"));
-  assert.equal(app.loadLocalStorage("mos-group-by-status-all-items"), false);
+  assert.equal((app.loadLocalStorage("mos-view-options-v1-all-items") as { groupByStatus: boolean }).groupByStatus, false);
   assert.match(allItemsShell.querySelector(".mos-filter-results")?.textContent ?? "", /A inactive[\s\S]*B parent/);
-  assert.equal(app.loadLocalStorage("mos-group-by-status-area-status-area"), false);
+  assert.equal((app.loadLocalStorage(`mos-view-options-v1-${JSON.stringify(["area", "status-area", null])}`) as { groupByStatus: boolean }).groupByStatus, false);
   const reopenedAllItems = new DumpView(new WorkspaceLeaf(), plugin.settings as never, plugin as never, true);
   const reopenedAllItemsInternals = reopenedAllItems as unknown as { app: App; registry: Task[]; render: () => void; containerEl: HTMLElement };
   reopenedAllItemsInternals.app = app;
@@ -991,6 +991,80 @@ test("Area view keeps search state, reveals child-only results, and handles desk
   panels = shell.querySelector<HTMLElement>(".mos-area-item-panels")!;
   assert.equal(panels.classList.contains("is-tasks-minimized"), false);
   assert.equal(window.getComputedStyle(panels).gridTemplateColumns, "minmax(0, 1fr) minmax(0, 1fr)");
+});
+
+test("view options survive recreation and remain independent by Area tab and list", t => {
+  const window = installDom();
+  closeDom(t, window);
+  const app = new App();
+  const area: AreaConfig = {
+    key: "career", label: "Career", icon: "C", feedToLLM: false,
+    tabs: [{ key: "leads", label: "Leads", fields: [] }, { key: "jobs", label: "Jobs", fields: [] }],
+  };
+  const plugin = viewPlugin({ areas: [area], advancedAreaFeatures: false, dailyNoteDir: "Daily" });
+  const mount = (view: AreaView | DumpView): HTMLElement => {
+    const shell = window.document.body.createDiv();
+    shell.createDiv(); shell.createDiv();
+    const internals = view as unknown as { app: App; containerEl: HTMLElement; render: () => void };
+    internals.app = app;
+    internals.containerEl = shell;
+    internals.render();
+    t.after(() => view.onClose());
+    return shell;
+  };
+  const makeArea = () => new AreaView(new WorkspaceLeaf(), plugin.settings as never, plugin as never, area.key);
+  const tab = (shell: HTMLElement, name: string) => {
+    Array.from(shell.querySelectorAll<HTMLButtonElement>(".mos-area-tabs button")).find(button => button.textContent === name)!.click();
+  };
+  const sort = (shell: HTMLElement, value: string) => {
+    const panel = openViewOptions(shell);
+    const select = panel.querySelector<HTMLSelectElement>('select[aria-label="Sort field"]')!;
+    select.value = value;
+    select.dispatchEvent(new window.Event("change"));
+    return panel;
+  };
+  const shell = mount(makeArea());
+  tab(shell, "Leads");
+  const panel = sort(shell, "name");
+  panel.querySelector<HTMLButtonElement>('button[aria-label="Sort direction"]')!.click();
+  const group = panel.querySelector<HTMLInputElement>('input[aria-label="Group items by active status"]')!;
+  group.checked = false;
+  group.dispatchEvent(new window.Event("change"));
+  const status = panel.querySelector<HTMLSelectElement>('select[aria-label="Task status"]')!;
+  status.value = "done";
+  status.dispatchEvent(new window.Event("change"));
+  const search = shell.querySelector<HTMLInputElement>('input[type="search"]')!;
+  search.value = "follow up";
+  search.dispatchEvent(new window.Event("input"));
+  tab(shell, "Jobs");
+  assert.equal(openViewOptions(shell).querySelector<HTMLSelectElement>('select[aria-label="Sort field"]')!.value, "date_created");
+  assert.equal(shell.querySelector<HTMLInputElement>('input[type="search"]')!.value, "");
+  tab(shell, "Leads");
+  const reopened = mount(makeArea());
+  assert.equal(reopened.querySelector(".mos-area-tabs .is-active")!.textContent, "Leads");
+  const restored = openViewOptions(reopened);
+  assert.equal(restored.querySelector<HTMLSelectElement>('select[aria-label="Sort field"]')!.value, "name");
+  assert.equal(restored.querySelector<HTMLSelectElement>('select[aria-label="Task status"]')!.value, "done");
+  assert.equal(restored.querySelector<HTMLInputElement>('input[aria-label="Group items by active status"]')!.checked, false);
+  assert.equal(reopened.querySelector<HTMLInputElement>('input[type="search"]')!.value, "follow up");
+  const saved = app.loadLocalStorage(`mos-view-options-v1-${JSON.stringify(["area", "career", "leads"])}`) as { sortDir: string };
+  assert.equal(saved.sortDir, "desc");
+
+  const makeList = (all: boolean) => new DumpView(new WorkspaceLeaf(), plugin.settings as never, plugin as never, all);
+  sort(mount(makeList(false)), "name");
+  sort(mount(makeList(true)), "date_modified");
+  assert.equal(openViewOptions(mount(makeList(false))).querySelector<HTMLSelectElement>('select[aria-label="Sort field"]')!.value, "name");
+  assert.equal(openViewOptions(mount(makeList(true))).querySelector<HTMLSelectElement>('select[aria-label="Sort field"]')!.value, "date_modified");
+
+  // Malformed stored values fall back safely; the existing grouping preference is retained.
+  app.saveLocalStorage("mos-view-options-v1-inbox", { sortField: "bad", sortDir: "bad", filters: { status: "bad", query: 42 } });
+  const invalid = mount(makeList(false));
+  assert.equal(openViewOptions(invalid).querySelector<HTMLSelectElement>('select[aria-label="Sort field"]')!.value, "date_created");
+  app.saveLocalStorage(`mos-active-tab-area-career`, "removed");
+  app.saveLocalStorage(`mos-group-by-status-area-career`, false);
+  const fallback = mount(makeArea());
+  assert.equal(fallback.querySelector(".mos-area-tabs .is-active")!.textContent, "All");
+  assert.equal(openViewOptions(fallback).querySelector<HTMLInputElement>('input[aria-label="Group items by active status"]')!.checked, false);
 });
 
 test("All Items and Inbox expose only their applicable view options", t => {

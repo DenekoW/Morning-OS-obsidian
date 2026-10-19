@@ -832,6 +832,36 @@ type FilterState = {
   custom?: Record<string, string>;
 };
 
+type SavedViewOptions = {
+  sortField: SortField;
+  sortDir: SortDir;
+  groupByStatus: boolean;
+  filters: FilterState;
+};
+
+function loadViewOptions(app: App, key: string, defaultDir: SortDir, legacyGroupKey: string): SavedViewOptions {
+  const raw: unknown = app.loadLocalStorage(key);
+  const saved = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  const rawFilters = saved.filters;
+  const source = rawFilters && typeof rawFilters === "object" ? rawFilters as Record<string, unknown> : {};
+  const filters: FilterState = {};
+  if (typeof source.query === "string") filters.query = source.query;
+  if (source.priority === "red" || source.priority === "regular") filters.priority = source.priority;
+  if (source.urgency === "none" || source.urgency === "low" || source.urgency === "med" || source.urgency === "high") filters.urgency = source.urgency;
+  if (source.remind === "has" || source.remind === "due") filters.remind = source.remind;
+  if (source.status === "open" || source.status === "done" || source.status === "dismissed") filters.status = source.status;
+  if (source.custom && typeof source.custom === "object") {
+    filters.custom = Object.fromEntries(Object.entries(source.custom).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+  }
+  const legacyGroup: unknown = app.loadLocalStorage(legacyGroupKey);
+  return {
+    sortField: saved.sortField === "date_created" || saved.sortField === "date_modified" || saved.sortField === "date_completed" || saved.sortField === "name" ? saved.sortField : "date_created",
+    sortDir: saved.sortDir === "asc" || saved.sortDir === "desc" ? saved.sortDir : defaultDir,
+    groupByStatus: typeof saved.groupByStatus === "boolean" ? saved.groupByStatus : typeof legacyGroup === "boolean" ? legacyGroup : true,
+    filters,
+  };
+}
+
 function metadataText(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
@@ -1611,6 +1641,7 @@ function renderAddTaskInput(parent: HTMLElement, app: App, placeholder: string, 
 }
 
 export class AreaView extends ItemView {
+  private optionsLoaded = false;
   private settings: MorningOSSettings;
   private plugin: MorningOSPlugin;
   private registry: TaskRegistry = [];
@@ -1707,19 +1738,52 @@ export class AreaView extends ItemView {
   }
 
   private getGroupByStatus(): boolean {
-    if (this.groupByStatus === null) {
-      const saved = this.app.loadLocalStorage(`mos-group-by-status-area-${this.areaKey}`);
-      this.groupByStatus = typeof saved === "boolean" ? saved : true;
-    }
-    return this.groupByStatus;
+    return this.groupByStatus ?? true;
   }
 
   private setGroupByStatus(next: boolean): void {
     this.groupByStatus = next;
-    this.app.saveLocalStorage(`mos-group-by-status-area-${this.areaKey}`, next);
+    this.saveViewOptions();
+  }
+
+  private viewOptionsKey(): string {
+    return `mos-view-options-v1-${JSON.stringify(["area", this.areaKey, this.activeTab])}`;
+  }
+
+  private loadViewOptions(): void {
+    const saved = loadViewOptions(this.app, this.viewOptionsKey(), "asc", `mos-group-by-status-area-${this.areaKey}`);
+    this.sortField = saved.sortField;
+    this.sortDir = saved.sortDir;
+    this.groupByStatus = saved.groupByStatus;
+    this.filters = saved.filters;
+  }
+
+  private saveViewOptions(): void {
+    this.app.saveLocalStorage(this.viewOptionsKey(), {
+      sortField: this.sortField, sortDir: this.sortDir, groupByStatus: this.getGroupByStatus(), filters: this.filters,
+    });
+  }
+
+  private selectTab(tab: string | null): void {
+    this.activeTab = tab;
+    this.app.saveLocalStorage(`mos-active-tab-area-${this.areaKey}`, tab);
+    this.loadViewOptions();
+    this.render();
   }
 
   private render() {
+    const tabs = this.plugin.settings.areas.find(area => area.key === this.areaKey)?.tabs ?? [];
+    if (!this.optionsLoaded) {
+      this.optionsLoaded = true;
+      const savedTab: unknown = this.app.loadLocalStorage(`mos-active-tab-area-${this.areaKey}`);
+      if (typeof savedTab === "string" && tabs.some(tab => tab.key === savedTab)) this.activeTab = savedTab;
+      this.loadViewOptions();
+    }
+    if (this.activeTab !== null && !tabs.some(tab => tab.key === this.activeTab)) {
+      this.activeTab = null;
+      this.app.saveLocalStorage(`mos-active-tab-area-${this.areaKey}`, null);
+      this.loadViewOptions();
+    }
     const container = this.containerEl.children[1] as HTMLElement;
     disposeEditorsIn(container);
     container.empty();
@@ -1752,10 +1816,10 @@ export class AreaView extends ItemView {
     if (area.tabs.length > 0) {
       const tabBar = controlRow.createDiv({ cls: "mos-area-tabs" });
       const allTab = tabBar.createEl("button", { cls: "mos-btn mos-btn-tab" + (!this.activeTab ? " is-active" : ""), text: "All" });
-      allTab.addEventListener("click", () => { this.activeTab = null; this.render(); });
+      allTab.addEventListener("click", () => this.selectTab(null));
       for (const tab of area.tabs) {
         const btn = tabBar.createEl("button", { cls: "mos-btn mos-btn-tab" + (this.activeTab === tab?.key ? " is-active" : ""), text: tab.label });
-        btn.addEventListener("click", () => { this.activeTab = tab.key; this.render(); });
+        btn.addEventListener("click", () => this.selectTab(tab.key));
       }
     }
 
@@ -1770,16 +1834,19 @@ export class AreaView extends ItemView {
       getCurrentFilters: () => this.filters,
       onFiltersChange: (filters) => {
         this.filters = filters;
+        this.saveViewOptions();
         this.renderResults(results, area, activeTabConfig, activeFields, advancedAreaFeatures);
       },
       sortField: this.sortField,
       sortDir: this.sortDir,
       onSortChange: (field) => {
         this.sortField = field;
+        this.saveViewOptions();
         this.renderResults(results, area, activeTabConfig, activeFields, advancedAreaFeatures);
       },
       onSortDirectionChange: (direction) => {
         this.sortDir = direction;
+        this.saveViewOptions();
         this.renderResults(results, area, activeTabConfig, activeFields, advancedAreaFeatures);
       },
       showGrouping: true,
@@ -2169,6 +2236,7 @@ export class AreaView extends ItemView {
 }
 
 export class DumpView extends ItemView {
+  private optionsLoaded = false;
   private settings: MorningOSSettings;
   private plugin: MorningOSPlugin;
   private registry: TaskRegistry = [];
@@ -2247,19 +2315,34 @@ export class DumpView extends ItemView {
   }
 
   private getGroupByStatus(): boolean {
-    if (this.groupByStatus === null) {
-      const saved = this.app.loadLocalStorage("mos-group-by-status-all-items");
-      this.groupByStatus = typeof saved === "boolean" ? saved : true;
-    }
-    return this.groupByStatus;
+    return this.groupByStatus ?? true;
   }
 
   private setGroupByStatus(next: boolean): void {
     this.groupByStatus = next;
-    this.app.saveLocalStorage("mos-group-by-status-all-items", next);
+    this.saveViewOptions();
+  }
+
+  private viewOptionsKey(): string {
+    return this.allItems ? "mos-view-options-v1-all-items" : "mos-view-options-v1-inbox";
+  }
+
+  private saveViewOptions(): void {
+    this.app.saveLocalStorage(this.viewOptionsKey(), {
+      sortField: this.sortField, sortDir: this.sortDir, groupByStatus: this.getGroupByStatus(), filters: this.filters,
+    });
   }
 
   private render() {
+    if (!this.optionsLoaded) {
+      this.optionsLoaded = true;
+      const saved = loadViewOptions(this.app, this.viewOptionsKey(), "desc", "mos-group-by-status-all-items");
+      this.sortField = saved.sortField;
+      this.sortDir = saved.sortDir;
+      this.groupByStatus = saved.groupByStatus;
+      this.filters = saved.filters;
+      delete this.filters.custom;
+    }
     const container = this.containerEl.children[1] as HTMLElement;
     disposeEditorsIn(container);
     container.empty();
@@ -2291,16 +2374,19 @@ export class DumpView extends ItemView {
       getCurrentFilters: () => this.filters,
       onFiltersChange: (filters) => {
         this.filters = filters;
+        this.saveViewOptions();
         this.renderResults(results);
       },
       sortField: this.sortField,
       sortDir: this.sortDir,
       onSortChange: (field) => {
         this.sortField = field;
+        this.saveViewOptions();
         this.renderResults(results);
       },
       onSortDirectionChange: (direction) => {
         this.sortDir = direction;
+        this.saveViewOptions();
         this.renderResults(results);
       },
       showGrouping: this.allItems,
