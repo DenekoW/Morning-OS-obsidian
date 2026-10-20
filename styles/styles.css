@@ -84,7 +84,21 @@
   position: relative;
 }
 
+/* Obsidian also makes view-content scrollable. Keep one scrolling surface so
+   iOS does not scroll both ancestors when focusing an input above the keyboard. */
+.workspace-leaf-content > .view-content.morning-os {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+  height: auto;
+  padding: 0;
+  overflow: hidden;
+}
+
 .morning-os-scroll {
+  flex: 1 1 0;
+  min-height: 0;
   height: 100%;
   overflow-y: auto;
 }

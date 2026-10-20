@@ -62,6 +62,34 @@ function closeDom(t: TestContext, window: Window): void {
   });
 }
 
+test("Morning OS keeps one scroll owner inside Obsidian's view container", t => {
+  const window = installDom(390);
+  closeDom(t, window);
+  const hostStyle = window.document.createElement("style");
+  hostStyle.textContent = `
+    .workspace-leaf-content { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+    .workspace-leaf-content .view-content { height: 100%; padding: 12px; overflow: auto; }
+  `;
+  window.document.head.prepend(hostStyle);
+  const leaf = window.document.body.createDiv({ cls: "workspace-leaf-content" });
+  const content = leaf.createDiv({ cls: "view-content morning-os" });
+  const scroll = content.createDiv({ cls: "morning-os-scroll" });
+  const input = scroll.createEl("input", { type: "search" });
+  const nativeView = leaf.createDiv({ cls: "view-content" });
+
+  const style = window.getComputedStyle(content);
+  assert.equal(style.overflow, "hidden", "the host view must not become a second focus-scroll target");
+  assert.equal(style.paddingTop, "0px");
+  assert.equal(style.paddingBottom, "0px");
+  assert.equal(style.height, "auto", "the view uses the remaining flex space rather than its parent's full height");
+  assert.equal(style.minHeight, "0", "keyboard resizing may shrink the flex item below its contents");
+  assert.equal(window.getComputedStyle(scroll).overflowY, "auto");
+  assert.equal(window.getComputedStyle(scroll).minHeight, "0");
+  assert.equal(window.getComputedStyle(nativeView).overflow, "auto", "other Obsidian views retain their native layout");
+  input.focus();
+  assert.equal(window.document.activeElement, input);
+});
+
 test("task autocomplete opens only for matching link or tag triggers", t => {
   const window = installDom(390);
   closeDom(t, window);
