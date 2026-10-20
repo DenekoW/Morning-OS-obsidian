@@ -1,200 +1,179 @@
-# Morning OS
+﻿# Morning OS
 
 [![Obsidian Plugin](https://img.shields.io/badge/Obsidian-Plugin-7c3aed?logo=obsidian&logoColor=white)](https://community.obsidian.md/plugins/morning-os)
 [![Downloads](https://img.shields.io/badge/dynamic/json?url=https://raw.githubusercontent.com/obsidianmd/obsidian-releases/master/community-plugin-stats.json&query=%24%5B%22morning-os%22%5D.downloads&label=downloads&color=7c3aed)](https://community.obsidian.md/plugins/morning-os)
 
-> Your Obsidian vault, processed every morning. Morning OS reads your goals, tasks, and rules — and generates a personalized briefing dashboard. Spend your morning focused, not reorganizing.
+Manage your tasks, notes, and life areas inside Obsidian, then bring your priorities together on a focused Home dashboard. Add your rules and goals for a daily briefing, with optional AI curation.
 
-[![Morning OS Dashboard — dark mode](images/dashboard-dark.png)](images/dashboard-dark.png)
+[![Morning OS dashboard in dark mode](images/dashboard-dark.png)](images/dashboard-dark.png)
 
----
+## What you can do
 
-## The problem
-
-Your vault is full of goals, tasks, and rules you wrote for yourself. But every morning you still open Obsidian and spend ten minutes figuring out where to start — rereading the same files, rediscovering the same priorities.
-
-Morning OS does that reading for you. Open the panel, your day is already laid out.
-
----
-
-## What you get
-
-[![Morning OS Dashboard — light mode](images/dashboard-light.png)](images/dashboard-light.png)
-
-| Section | What it does |
+| Feature | How it works |
 |---|---|
-| **Identity strip** | Your own rules about who you're trying to be — before you see a single task |
-| **Goals bar** | Top short and long-term goals, so the daily grind stays connected to the bigger picture |
-| **Red alert tasks** | Urgent tasks from today's note, with a badge showing how many days each has been carried |
-| **Regular tasks** | Normal persistent Today tasks — they remain selected until you act on them |
-| **Rules for today** | The AI picks the rules from your rules file most relevant to today's tasks |
-| **Suggestions** | A short nudge based on your patterns and what's been sitting undone |
-| **Wins** | A prompt at the end of the day — what you write here goes straight into your daily note |
+| **Home** | See your Today items alongside identity, goals, rules, suggestions, and wins. Identity, goals, and rules have visibility settings. |
+| **Inbox** | Capture tasks and notes, then organize them into Areas and tabs. Unorganized groups stay in Inbox while the parent or a child is active. |
+| **All Items** | Browse non-deleted tasks and notes, with search and filters. |
+| **Areas** | Organize work and personal life with configurable Areas, tabs, card or table views, and custom fields. Advanced Area features are optional. |
+| **Tasks and notes** | Add sub-tasks, priority, reminders, and metadata. Complete or dismiss tasks; archive notes. |
+| **Today** | Explicitly select the items you want to focus on. Red alert and regular priorities keep urgent work visible. |
+| **Reminders** | Due date reminders bring active items into Today when the plugin processes them. Each reminder occurrence is handled once. |
+| **Wins** | Record wins from Home into your configured Wins log. |
+| **Trash and recovery** | Restore deleted items, permanently delete them, or recover item state from verified snapshots. |
 
-The AI picks which of your items to surface. It never rewrites or edits your vault. The only new text it generates is the suggestion.
+Today is a persistent selection. Items stay selected across days until you complete, dismiss, archive, delete, or explicitly remove them. Removing a reminder-promoted item from Today does not bring that same reminder occurrence back; explicitly reset the reminder to create another occurrence.
 
----
+Tasks and notes are stored in `_generated/data/state.json`. You manage them directly in the plugin; a daily note is not required for everyday task management.
 
-## Works on mobile
+[![Morning OS dashboard in light mode](images/dashboard-light.png)](images/dashboard-light.png)
 
-No terminal, no Python, no desktop-only dependencies. The plugin runs entirely inside Obsidian — tap the sun icon on your phone and your brief is ready.
+## Setup
 
-The only requirement is that your vault syncs across devices.
+Requires **Obsidian 1.11.4 or later**. The core plugin works on desktop, iOS, and Android without a terminal, subprocesses, or native dependencies.
 
-> **Recommended:** [Remotely Save](https://github.com/remotely-save/remotely-save) with Dropbox. Make sure your sync settings include folders starting with `_` — that's where Morning OS writes its briefs.
+1. Install and enable **Morning OS** from **Settings → Community plugins → Browse**.
+2. Click or tap the sun icon to open Morning OS.
+3. Choose a root folder during onboarding. Morning OS creates Area notes, an Identity Anchor, and a Wins log, with sample rules and goals to get started. Existing files are preserved.
+4. Add tasks or notes in Inbox, organize them into Areas, and select your priorities for Today.
+5. Edit your Area notes with your own rules and goals, then use **Regenerate briefing** to update Home.
 
-### Home Screen widget notes and sync
+**No API key is required.** You can manage items and generate a briefing directly from your configured notes. For AI curation and new suggestions, enable **Use AI for briefings** in Morning OS settings, select a provider, and enter its credentials.
 
-Morning OS can export Identity, goals, Today, Inbox, or All tasks to an owned Markdown note for Obsidian's iPhone/iPad Home Screen **View Note** widget. Add and enable an export in **Settings → Morning OS → Widget notes**, then bookmark the exported note in Obsidian. On the Home Screen, press and hold the View Note widget, choose **Edit Widget**, and select the vault and bookmarked export. These notes are display-only; changing their Markdown or checkboxes does not change a task. See [widget setup](docs/widgets.md) for test-vault installation, iOS requirements, and limitations.
+Supported providers: **OpenAI, Google Gemini, Groq, and AWS Bedrock**.
 
-The exported Markdown file syncing to another device is not enough for Morning OS to recognize it as an export there: the Widget notes list is part of that device's local Morning OS settings (`.obsidian/plugins/morning-os/data.json`). Bookmark and select the synced note manually on that device; it will not appear in **Widget notes** or be refreshed by Morning OS there unless you configure a local export.
+## Briefings and optional AI
 
-Remotely Save transfers vault files through the remote and include/exclude rules you configure. It can transfer `_generated/data/state.json` (the authoritative tasks, notes, Today membership, date reminders, and occurrence acknowledgements), briefing JSON, configured source notes, and widget Markdown notes, but only when your configuration includes those paths. It does not deliver calendar events or run Morning OS while Obsidian is closed.
+Onboarding generates an initial briefing. After setup, **Regenerate briefing** is the explicit action that rebuilds it. Opening a view, editing a task, or receiving synced state does not trigger an AI call or regenerate the briefing.
 
-| Vault data | Purpose and sync consideration |
+The briefing reads mapped sections from your Area Markdown notes and recent entries from your Wins log. With AI enabled and credentials configured, it also uses task context to curate rules and goals, order wins, and generate suggestions. You can choose AI or direct mode for individual briefing sections and adjust the displayed counts.
+
+Area **Feed to LLM** permissions control Area-note input and item context. An item assigned to multiple Areas is eligible only when every assigned Area permits it; selecting it for Today does not override those permissions. The prompt also includes yesterday's wins and completed-task text, so Area permissions should not be treated as a blanket exclusion for all historical content.
+
+With AI disabled or no credentials available, briefing fields use your source content directly. New AI suggestions require a provider call. AI output supplies briefing content; it does not edit your source notes or task state.
+
+Briefings are saved to `_generated/briefs/YYYY-MM-DD.json`. They contain rules, goals, suggestions, and wins. Home reads tasks and notes separately from the current item state, so item changes appear without regenerating a briefing.
+
+## Your vault files
+
+With the default onboarding root, the structure looks like this:
+
+```text
+Essential/
+  Areas/
+    Health.md                     # Example tactical and emotional rules
+    Career.md                     # Example short- and long-term goals
+    ...                           # Other configured Areas
+  Identity-Anchor.md
+  Wins.md                         # Wins entered from Home
+_generated/
+  data/
+    state.json                    # Authoritative tasks and notes
+    settings.json                 # Optional, explicitly initialized shared settings
+  briefs/
+    YYYY-MM-DD.json
+  snapshots/                      # Verified item-state backups
+  recovery/                       # Preserved recovery files
+  widgets/                        # Default widget-note destinations
+  feedback/
+    reactions/
+```
+
+The default briefing section mappings are `Tactical Rules`, `Emotional Rules`, `Short Term`, and `Long Term`. For example, an Area note can contain:
+
+```markdown
+## Tactical Rules
+- Start the hardest task within 15 minutes of sitting down
+
+## Short Term
+- Finish the portfolio update this week
+
+## Long Term
+- Build a sustainable independent career
+```
+
+Configure Area briefing sources, section mappings, source paths, and output paths in settings. Daily-note and older source-file settings remain for legacy migration; daily-note checkboxes are not the current task store. If present, `_generated/tasks.json` is retained as a legacy migration source.
+
+## Mobile and sync
+
+[![Morning OS mobile view](images/mobile.png)](images/mobile.png)
+
+Install Morning OS on each device and use your vault sync provider to transfer its data. Sync must include `_generated/data/state.json` for tasks and notes to travel between devices, plus your source notes and briefing files for the same Home content.
+
+| Data | What to sync |
 |---|---|
-| `_generated/data/state.json` | Authoritative item state. Sync it if tasks must move between devices. |
-| `_generated/briefs/`, configured identity/goals/wins notes, and widget destinations | Source and display content. Widget notes are regenerated representations, not task authority. |
-| `_generated/snapshots/`, `_generated/recovery/`, feedback, legacy files, pending transaction artifacts | Recovery, feedback, or compatibility data. Whether they sync depends on your include/exclude rules; transaction artifacts are neither locks nor device-local storage. |
-| `_generated/data/settings.json` | Explicitly initialized shared Areas, tabs, fields, privacy permissions, source paths, and preferences. Credentials and widget exports are excluded. |
-| `.obsidian/plugins/morning-os/` | Device-local credentials, widget export configuration, and runtime settings. Keep plugin configuration out of sync. |
+| `_generated/data/state.json` | Tasks, notes, Today selections, reminders, and occurrence acknowledgements. |
+| Area notes, Identity Anchor, Wins log, and `_generated/briefs/` | Briefing sources and saved briefing content. |
+| `_generated/data/settings.json` | Shared preferences, once explicitly initialized. |
+| Widget Markdown destinations | Display notes for widgets on other devices. |
+| `_generated/snapshots/` and `_generated/recovery/` | Recovery files, if included by your sync rules. These are not a complete vault backup. |
 
-#### Remotely Save: share Morning OS settings across devices
+Plugin configuration under `.obsidian/plugins/morning-os/` contains device-local credentials, widget export configuration, and runtime settings. Keep it out of sync; configure credentials and widget exports separately on each device.
 
-Shared settings use the ordinary vault file `_generated/data/settings.json`. Update Morning OS on every device, choose one baseline device, and open **Settings → Morning OS → General → Shared vault settings → Initialize from this device** there. Initialization preserves a credential-free backup. Sync the file before opening the updated plugin on your other devices; they adopt the delivered configuration without seeding defaults.
+### Sharing preferences across devices
 
-Configure Remotely Save on **each** device to include your source notes and `_generated/`:
+Shared settings are optional. They include Areas, tabs, fields, privacy permissions, Home and briefing preferences, and source paths. Credentials, widget exports, onboarding, and runtime bookkeeping remain local.
 
-1. Keep **Sync config directory** disabled.
-2. Enable **Sync underscore items**.
-3. If using **Regex of paths to allow**, include:
+1. Update Morning OS on every device. Older plugin versions cannot read the current schema 4 item state.
+2. Choose a baseline device and open **Settings → Morning OS → General → Shared vault settings → Initialize from this device**.
+3. Sync `_generated/data/settings.json` before opening the updated plugin on the other devices. They adopt the delivered configuration without initializing their own defaults.
+
+Initialization preserves a credential-free configuration backup. If an adopted shared settings file becomes missing or invalid, the plugin retains its last-good configuration and blocks shared edits until the valid file returns. Concurrent edits to the same shared field report conflicts. Vault sync does not guarantee lossless concurrent offline edits; test your setup in a disposable two-device vault first.
+
+### Remotely Save configuration
+
+On each device, keep **Sync config directory** disabled and enable **Sync underscore items**. Check include/exclude rules for all source and output paths you use.
+
+If using **Regex of paths to allow**, this example includes the default source folder and all generated content:
 
 ```regex
 ^Essential(?:/|$)
 ^_generated(?:/|$)
 ```
 
-This is an allowlist: only paths that match are synced. The example includes `Essential/` and all content under `_generated/`, including item state, shared settings, briefs, snapshots, recovery files, feedback, and widget notes. Add regexes for other source folders and widget destinations you use. Install Morning OS and configure Remotely Save separately on every device.
+This is an allowlist: add rules for any other source folders or widget destinations. It includes snapshots, recovery files, feedback, and transaction artifacts under `_generated/` as well as active state. Transaction artifacts are not cross-device locks.
 
-Credentials, widget exports, onboarding, and runtime bookkeeping remain local. Missing or invalid shared settings retain the last-good configuration and block shared edits until the valid file returns. Concurrent edits to the same shared field report conflicts; this does not guarantee lossless offline edits or remote delivery. Test the setup in a disposable two-device vault first. See [shared settings behavior](docs/architecture.md#shared-settings).
+Morning OS refreshes views when delivered item state or shared settings change. Remotely Save transfers vault files; it does not run Morning OS while Obsidian is closed or deliver calendar alerts. See [shared settings behavior](docs/architecture.md#shared-settings) for details.
 
-Check your provider's configured include/exclude rules and hidden-file options rather than assuming every eligible path syncs. Experimental Google Calendar publishing is available only through **Settings → Morning OS → Calendar (experimental)**, with a dedicated plugin-created test calendar and one selected publisher device. It is not general-use ready; see [calendar setup and acceptance limits](docs/calendar.md). Do not sync OAuth credentials through plugin settings.
+## Home Screen widget notes
 
-[![Morning OS — mobile view](images/mobile.png)](images/mobile.png)
+Export Identity, short- or long-term goals, Today tasks, Inbox tasks, or All tasks to an owned Markdown note through **Settings → Morning OS → General → Widget notes**. Add an export, choose its source and destination, and enable it. Use **Refresh widget notes** from the command palette for a manual refresh.
 
----
+On iPhone or iPad, select the exported note in Obsidian's **View Note** Home Screen widget, bookmarking it first if required by the installed app's picker. Widget notes are display-only: editing their text or checkboxes does not update items.
 
-## Setup
+A synced note can be selected on another device, but its export configuration stays local. Configure a local export there if that device should refresh it. Refresh timing depends on Obsidian running and your sync provider. See [widget setup and limitations](docs/widgets.md).
 
-1. Install from **Settings → Community Plugins → Browse** and search "Morning OS"
-2. Enable the plugin
-3. Open **Settings → Morning OS** — pick an AI provider and enter your API key
-4. Click the sun icon in the sidebar — Morning OS walks you through the rest
+## Backups and recovery
 
-**Supported AI providers:** OpenAI · Google Gemini · Groq · AWS Bedrock
+Open **Settings → Morning OS → Advanced → Data safety & recovery** to create a verified backup, export item state, or restore a supported snapshot. Restore replaces the whole Morning OS item state rather than merging changes.
 
-> **No API key?** Morning OS still works — it uses your vault data directly without AI curation. Add a key later when you're ready.
+The plugin also snapshots before migration and at most once per changed local day. It retains the latest 20 automatic snapshots; manual and recovery copies are protected. Invalid or unsupported active state blocks ordinary writes instead of being replaced with an empty task list. Snapshots cover item state, so keep your normal vault backup as well. See [generated files and retention](docs/generated-files.md).
 
----
+## Experimental Google Calendar reminders
 
-## FAQ
+An optional, disabled-by-default publisher is available under **Settings → Morning OS → Calendar (experimental)**. It requires an operator-controlled HTTPS OAuth relay, one explicitly selected publishing device, and a plugin-created dedicated test calendar.
 
-**Does it read my private notes?**
-Only the files you point it to in settings — daily notes, rules, goals, and task files. It never reads your entire vault. All paths are configurable.
+This integration remains experimental and has not passed the device acceptance gates for general use. Mobile login and calendar-client notification behavior still need real-device verification. Google credentials stay in device-local Obsidian SecretStorage. See [calendar setup and acceptance limits](docs/calendar.md) before testing it in a disposable vault.
 
-**Does my data leave my device?**
-Only if you add an AI provider API key. Without one, everything stays local. With one, only the structured content from your configured files is sent — not your full vault.
+## Privacy and feedback
 
-**Does it work without an API key?**
-Yes. Without a key, it renders your tasks, goals, and rules directly from your vault with no AI curation. You can add a key later.
+The plugin reads configured source notes and its own item state for briefings; it does not scan the whole vault for AI context. Provider calls require AI to be enabled, an AI section to need a call, and credentials to be available. The prompt includes the selected briefing inputs described above, rather than your full vault.
 
-**Does it work on mobile?**
-Yes — iOS and Android, with no extra setup beyond vault sync.
+Optional calendar publishing sends reminder titles and schedules with ownership metadata to Google through the configured integration. Submitting in-app feedback posts to an external proxy only when that build has feedback proxy configuration; otherwise the form reports that feedback is not configured. You can always [open a GitHub issue](https://github.com/satyagalla/Morning-OS-obsidian/issues).
 
-**What if my daily note doesn't exist yet?**
-Morning OS keeps unfinished Today selections until you complete, dismiss, delete, or explicitly remove them.
-
-**How do I give feedback or report a bug?**
-Use the feedback button inside the plugin dashboard — it takes 30 seconds and goes directly to the developer.
-
----
-
-## Vault structure
-
-The plugin reads files you already maintain. All paths are configurable in settings.
-
-```
-Essential/
-  Daily/YYYY-MM-DD.md              ← daily note
-  State of Mind/
-    Tactical Rules.md
-    Emotional Rules.md
-    Long-term and Short-term.md
-  Pending Tasks/
-    Technical Tasks.md
-_generated/                        ← plugin writes here
-  briefs/
-  feedback/
-```
-
-Daily note format:
-
-```markdown
-## Red alert
-- [ ] urgent task
-
-## Regular
-- [ ] normal task
-
-## Wins
-- something good
-```
-
-Heading names are fully configurable.
-
----
-
-<details>
-<summary><strong>How it works under the hood</strong></summary>
-
-1. Reads today's daily note and your source files
-2. Fuzzy-matches incomplete tasks against previous briefs to detect carries (looks back up to 7 days across skipped days)
-3. Single LLM call picks relevant rules and goals, and writes a suggestion
-4. Brief saved to `_generated/briefs/YYYY-MM-DD.json`
-5. Dashboard renders from the brief
-
-Suggestion reactions (👍/👎) are stored per-day and feed into the next run.
-
-</details>
-
-<details>
-<summary><strong>Configuration</strong></summary>
-
-**Settings → Morning OS:**
-
-- **Briefing agent** — one explicit Regenerate briefing action
-- **AI provider** — provider, model, credentials
-- **Vault paths** — all source and output paths
-- **Section headings** — heading names in your daily note and goals file
-- **How many items to show** — per-field counts
-- **AI vs direct mode** — per-field toggle; "direct" = verbatim from vault, "AI" = LLM picks
-
-</details>
-
-<details>
-<summary><strong>Development</strong></summary>
+## Development
 
 ```bash
 npm install
-npm run dev      # watch + copy to vault on save
-npm run build    # production build
-npm run deploy   # build + copy to vault
+npm run build    # Type-check and create a production build
+npm test         # Run state, UI, widget, and integration tests
+npm run dev      # Watch, build, and copy to the configured vault
+npm run deploy   # Type-check, build, and copy to the configured vault
 ```
 
-Set `OBSIDIAN_PLUGIN_DIR` to your vault's plugin folder path.
+`npm run dev` and `npm run deploy` write to the vault selected by `OBSIDIAN_PLUGIN_DIR`; the build configuration includes a default path. Set it to a disposable test vault before using those commands. `npm run build` and `npm test` do not deploy the plugin.
 
-</details>
+See [commands](docs/commands.md), [architecture](docs/architecture.md), and [extending the briefing agent](docs/extending-the-agent.md) for contributor details.
 
 ---
 
-Built by [@satyagalla](https://github.com/satyagalla) · For feedback use the button inside the plugin or [open a GitHub issue](https://github.com/satyagalla/Morning-OS-obsidian/issues)
+Built by [@satyagalla](https://github.com/satyagalla) · [Report an issue](https://github.com/satyagalla/Morning-OS-obsidian/issues)
