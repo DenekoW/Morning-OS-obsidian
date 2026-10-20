@@ -1223,7 +1223,7 @@ export class MorningOSSettingTab extends PluginSettingTab {
 
     // ── LEFT: area list ──────────────────────────────────────────────────
 
-    const renderNavRow = (p: typeof areas[0], pi: number) => {
+    const renderNavRow = (p: typeof areas[0]) => {
       const row = left.createDiv({ cls: "mos-areas-nav-row" });
       const item = row.createDiv({
         cls: "mos-areas-nav-item" + (this.selectedAreaKey === p.key ? " is-active" : ""),
@@ -1238,34 +1238,10 @@ export class MorningOSSettingTab extends PluginSettingTab {
         right.empty();
         renderRight();
       });
-
-      const reorder = row.createDiv({ cls: "mos-areas-reorder" });
-      if (pi > 0) {
-        reorder.createEl("button", { cls: "mos-btn mos-btn-icon", text: "↑" })
-          .addEventListener("click", (e) => {
-            void (async () => {
-              e.stopPropagation();
-              [areas[pi - 1], areas[pi]] = [areas[pi], areas[pi - 1]];
-              await saveDataOnly();
-              left.empty(); renderLeft();
-            })();
-          });
-      }
-      if (pi < areas.length - 1) {
-        reorder.createEl("button", { cls: "mos-btn mos-btn-icon", text: "↓" })
-          .addEventListener("click", (e) => {
-            void (async () => {
-              e.stopPropagation();
-              [areas[pi], areas[pi + 1]] = [areas[pi + 1], areas[pi]];
-              await saveDataOnly();
-              left.empty(); renderLeft();
-            })();
-          });
-      }
     };
 
     const renderLeft = () => {
-      areas.forEach((p, pi) => renderNavRow(p, pi));
+      areas.forEach(p => renderNavRow(p));
       attachReorder(areas.map((area, index) => ({ key: area.key, label: area.label,
         el: left.children[index] as HTMLElement })), "vertical", async (source, target, before) => {
         try {

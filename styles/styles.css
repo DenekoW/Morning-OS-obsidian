@@ -1681,11 +1681,6 @@ button.mos-recovery-restore-button {
 }
 .mos-areas-nav-item:hover { background: color-mix(in srgb, var(--mos-system) 12%, transparent); color: var(--mos-system); }
 .mos-areas-nav-item.is-active { background: var(--mos-system); color: #fff; }
-.mos-areas-reorder {
-  display: none;
-  gap: 2px;
-}
-.mos-areas-nav-row:hover .mos-areas-reorder { display: flex; }
 .mos-areas-nav-divider {
   height: 1px;
   background: var(--background-modifier-border);
