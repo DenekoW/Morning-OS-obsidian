@@ -1305,30 +1305,70 @@ function buildItemMenuActions(
   return actions;
 }
 
+const contextMenuClosers = new WeakMap<Document, () => void>();
+
 function openContextMenu(anchor: HTMLElement, items: MenuAction[]) {
   const ownerDocument = anchor.ownerDocument;
-  ownerDocument.querySelector(".mos-ctx-menu")?.remove();
+  const ownerWindow = ownerDocument.defaultView;
+  if (!ownerWindow) return;
+  contextMenuClosers.get(ownerDocument)?.();
   const menu = ownerDocument.body.createDiv({ cls: "mos-ctx-menu" });
-  const rect = anchor.getBoundingClientRect();
-  menu.setCssStyles({
-    position: "fixed",
-    top: `${rect.bottom + 4}px`,
-    left: `${rect.left}px`,
-    zIndex: "9999",
-  });
+  const viewport = ownerWindow.visualViewport;
+  const close = (): void => {
+    menu.remove();
+    ownerDocument.removeEventListener("mousedown", outside);
+    ownerDocument.removeEventListener("keydown", onKeydown);
+    ownerDocument.removeEventListener("scroll", onScroll, true);
+    ownerWindow.removeEventListener("resize", position);
+    viewport?.removeEventListener("resize", position);
+    viewport?.removeEventListener("scroll", position);
+    contextMenuClosers.delete(ownerDocument);
+  };
+  const position = (): void => {
+    if (!anchor.isConnected) { close(); return; }
+    const margin = 8;
+    const leftEdge = (viewport?.offsetLeft ?? 0) + margin;
+    const topEdge = (viewport?.offsetTop ?? 0) + margin;
+    const width = Math.max(0, (viewport?.width ?? ownerWindow.innerWidth) - margin * 2);
+    const height = Math.max(0, (viewport?.height ?? ownerWindow.innerHeight) - margin * 2);
+    menu.setCssStyles({ maxWidth: `${width}px`, maxHeight: `${height}px` });
+    const rect = anchor.getBoundingClientRect();
+    const bounds = menu.getBoundingClientRect();
+    const bottomEdge = topEdge + height;
+    const below = rect.bottom + 4;
+    const above = rect.top - 4 - bounds.height;
+    const preferredTop = below + bounds.height <= bottomEdge ? below : above;
+    menu.setCssStyles({
+      left: `${Math.max(leftEdge, Math.min(rect.left, leftEdge + width - bounds.width))}px`,
+      top: `${Math.max(topEdge, Math.min(preferredTop, bottomEdge - bounds.height))}px`,
+    });
+  };
+  const outside = (event: MouseEvent): void => {
+    if (!menu.contains(event.target as Node)) close();
+  };
+  const onKeydown = (event: KeyboardEvent): void => {
+    if (event.key === "Escape") close();
+  };
+  const onScroll = (event: Event): void => {
+    if (!menu.contains(event.target as Node)) position();
+  };
 
   for (const item of items) {
     const btn = menu.createEl("button", {
       cls: "mos-ctx-item" + (item.danger ? " mos-ctx-item-danger" : ""),
       text: item.label,
     });
-    btn.addEventListener("click", () => { menu.remove(); item.action(); });
+    btn.addEventListener("click", () => { close(); item.action(); });
   }
 
-  const close = (e: MouseEvent) => {
-    if (!menu.contains(e.target as Node)) { menu.remove(); ownerDocument.removeEventListener("mousedown", close); }
-  };
-  ownerDocument.addEventListener("mousedown", close);
+  contextMenuClosers.set(ownerDocument, close);
+  position();
+  ownerDocument.addEventListener("mousedown", outside);
+  ownerDocument.addEventListener("keydown", onKeydown);
+  ownerDocument.addEventListener("scroll", onScroll, true);
+  ownerWindow.addEventListener("resize", position);
+  viewport?.addEventListener("resize", position);
+  viewport?.addEventListener("scroll", position);
 }
 
 /**

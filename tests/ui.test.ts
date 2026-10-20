@@ -90,6 +90,44 @@ test("Morning OS keeps one scroll owner inside Obsidian's view container", t => 
   assert.equal(window.document.activeElement, input);
 });
 
+test("item menus stay inside the mobile viewport and follow keyboard resizing", t => {
+  const window = installDom(390);
+  closeDom(t, window);
+  const viewport = new window.EventTarget();
+  Object.assign(viewport, { width: 390, height: 700, offsetLeft: 0, offsetTop: 0 });
+  Object.defineProperty(window, "visualViewport", { configurable: true, value: viewport });
+  const parent = window.document.body.createDiv();
+  renderTaskRowShared(parent, item("mobile-menu"), new App(), new Component(), () => undefined);
+  const anchor = parent.querySelector<HTMLButtonElement>('button[title="More actions"]')!;
+  let anchorTop = 620;
+  t.mock.method(anchor, "getBoundingClientRect", () => ({ left: 355, top: anchorTop, bottom: anchorTop + 24, width: 24, height: 24, right: 379, x: 355, y: anchorTop, toJSON: () => ({}) }));
+  const nativeBounds = window.HTMLElement.prototype.getBoundingClientRect;
+  t.mock.method(window.HTMLElement.prototype, "getBoundingClientRect", function(this: HTMLElement) {
+    if (!this.classList.contains("mos-ctx-menu")) return nativeBounds.call(this);
+    const width = Math.min(240, Number.parseFloat(this.style.maxWidth));
+    const height = Math.min(240, Number.parseFloat(this.style.maxHeight));
+    return { left: 0, top: 0, right: width, bottom: height, width, height, x: 0, y: 0, toJSON: () => ({}) };
+  });
+  anchor.click();
+  const menu = window.document.querySelector<HTMLElement>(".mos-ctx-menu")!;
+  assert.equal(menu.style.left, "142px", "right-edge menus shift left to fit");
+  assert.equal(menu.style.top, "376px", "bottom-edge menus open above the button");
+  anchorTop = 50;
+  window.document.dispatchEvent(new window.Event("scroll"));
+  assert.equal(menu.style.top, "78px", "menus open below when space is available");
+
+  Object.assign(viewport, { width: 200, height: 180, offsetLeft: 10, offsetTop: 40 });
+  viewport.dispatchEvent(new window.Event("resize"));
+  assert.equal(menu.style.maxWidth, "184px");
+  assert.equal(menu.style.maxHeight, "164px");
+  assert.equal(menu.style.left, "18px");
+  assert.equal(menu.style.top, "48px", "a tall menu stays inside the visible keyboard-reduced viewport");
+  assert.equal(window.getComputedStyle(menu).overflowY, "auto", "oversized menus can scroll to every action");
+  window.document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape" }));
+  assert.equal(menu.isConnected, false);
+  viewport.dispatchEvent(new window.Event("resize"));
+});
+
 test("task autocomplete opens only for matching link or tag triggers", t => {
   const window = installDom(390);
   closeDom(t, window);
