@@ -1656,6 +1656,7 @@ button.mos-recovery-restore-button {
 }
 .mos-areas-right {
   flex: 1;
+  min-width: 0;
   padding: 16px;
   overflow-y: auto;
 }
@@ -2213,3 +2214,59 @@ select.mos-btn.mos-btn-select.mos-filter-select {
   font-size: 0.8rem;
 }
 /* mos-edit-save/cancel-btn → now .mos-btn.mos-btn-primary / .mos-btn */
+
+/* Reorder handles own touch gestures; the surrounding controls remain scrollable. */
+.mos-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-width: 24px;
+  min-height: 28px;
+  margin-right: 4px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  color: var(--text-muted);
+}
+.mos-drag-handle:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  border-radius: 4px;
+}
+.mos-is-dragging { opacity: 0.55; }
+.mos-is-dragging .mos-drag-handle { cursor: grabbing; }
+.mos-reorder-horizontal.mos-drop-before { box-shadow: -3px 0 0 var(--interactive-accent); }
+.mos-reorder-horizontal.mos-drop-after { box-shadow: 3px 0 0 var(--interactive-accent); }
+.mos-reorder-vertical.mos-drop-before { box-shadow: 0 -3px 0 var(--interactive-accent); }
+.mos-reorder-vertical.mos-drop-after { box-shadow: 0 3px 0 var(--interactive-accent); }
+.mos-field-list { display: grid; gap: 10px; margin-bottom: 16px; }
+.mos-field-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--mos-radius-sm);
+  background: var(--background-primary);
+}
+.mos-field-row > .mos-drag-handle { grid-column: 1; grid-row: 1; align-self: start; margin: 18px 0 0; }
+.mos-field-controls {
+  grid-column: 2;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(130px, 100%), 1fr));
+  gap: 10px;
+  min-width: 0;
+}
+.mos-field-control { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.mos-field-control-label { font-size: 12px; color: var(--text-muted); }
+.mos-field-control input, .mos-field-control select { width: 100%; min-width: 0; margin: 0; }
+.mos-field-controls .mos-field-options-inline { grid-column: 1 / -1; }
+.mos-field-options-inline[hidden] { display: none; }
+.mos-field-actions { grid-column: 2; display: flex; flex-wrap: wrap; gap: 6px; }
+.mos-field-actions .mos-field-delete { margin-left: auto; color: var(--text-error); }
+.mos-field-add { padding-top: 12px; border-top: 1px solid var(--background-modifier-border); }
+.mos-field-add .morning-os-wins-input { min-width: 0; flex: 1 1 120px; }
+.mos-field-add .mos-field-options-row { align-items: stretch; flex-direction: column; }
+.mos-areas-tab-btn .mos-drag-handle { min-width: 18px; margin-right: 0; color: inherit; }
+.mos-areas-tab-btn .mos-btn-icon { padding: 3px 6px; min-width: 24px; box-shadow: none; background: transparent; color: inherit; }
+.mos-areas-tab-btn .mos-btn-icon:hover { background: var(--background-modifier-hover); }

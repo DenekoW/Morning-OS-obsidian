@@ -10,6 +10,8 @@ import type { AreaConfig, Task, TabConfig } from "../src/types";
 import { DEFAULT_SETTINGS, MorningOSSettingTab } from "../src/settings";
 import { STATE_PATH, StateStore } from "../src/data/state-store";
 import type { StateSnapshot } from "../src/data/state-store";
+import { attachReorder, moveEntry } from "../src/reorder";
+import { cloneSettings, sharedSettings } from "../src/data/shared-settings";
 import { todayStr } from "../src/utils";
 
 type CreateOptions = { cls?: string; text?: string; type?: string; value?: string; placeholder?: string; attr?: Record<string, string> };
@@ -2058,4 +2060,150 @@ test("inline editing keeps the live draft through an external replacement and sh
   assert.equal(saved.items[0].text, "My local draft");
   assert.equal(saved.items[0].notes, "Unrelated external details");
   assert.equal(refreshed, 1);
+});
+
+
+test("reorder handles separate clicks from dragging, mark drops, cancel, and support the keyboard", async t => {
+  const window = installDom();
+  closeDom(t, window);
+  const list = window.document.body.createDiv();
+  const items = [{ key: "a", label: "A" }, { key: "b", label: "B" }, { key: "c", label: "C" }];
+  let saves = 0;
+  const entries = items.map((item, index) => {
+    const el = list.createEl("button", { text: item.label });
+    el.getBoundingClientRect = () => ({ left: 0, right: 100, top: index * 40, bottom: index * 40 + 40,
+      width: 100, height: 40, x: 0, y: index * 40, toJSON: () => ({}) });
+    return { ...item, el };
+  });
+  attachReorder(entries, "vertical", async (source, target, before) => {
+    if (moveEntry(items, source, target, before)) saves++;
+  });
+  const handle = entries[0].el.querySelector<HTMLElement>(".mos-drag-handle")!;
+  Object.assign(handle, { setPointerCapture: () => undefined, hasPointerCapture: () => false });
+  const pointer = (type: string, y: number) => handle.dispatchEvent(new window.PointerEvent(type, {
+    bubbles: true, pointerId: 1, isPrimary: true, button: 0, clientX: 20, clientY: y,
+  }));
+  let clicks = 0;
+  entries[0].el.addEventListener("click", () => clicks++);
+  handle.click();
+  assert.equal(clicks, 0);
+  pointer("pointerdown", 10); pointer("pointermove", 12); pointer("pointerup", 12);
+  assert.equal(saves, 0, "small movement is not a reorder");
+  pointer("pointerdown", 10); pointer("pointermove", 115);
+  assert.ok(entries[2].el.classList.contains("mos-drop-after"));
+  assert.equal(saves, 0, "moving never writes settings");
+  pointer("pointercancel", 115);
+  assert.equal(saves, 0);
+  assert.equal(list.querySelector(".mos-drop-after"), null);
+  pointer("pointerdown", 10); pointer("pointermove", 115); pointer("pointerup", 115);
+  await Promise.resolve(); await Promise.resolve();
+  assert.deepEqual(items.map(item => item.key), ["b", "c", "a"]);
+  assert.equal(saves, 1);
+  assert.equal(list.querySelector(".mos-is-dragging"), null);
+  // Keyboard destination is based on the rendered order, just as a fresh layout is.
+  items.splice(0, items.length, ...[{ key: "a", label: "A" }, { key: "b", label: "B" }, { key: "c", label: "C" }]);
+  handle.dispatchEvent(new window.KeyboardEvent("keydown", { bubbles: true, key: "ArrowDown" }));
+  await Promise.resolve(); await Promise.resolve();
+  assert.deepEqual(items.map(item => item.key), ["b", "a", "c"]);
+  assert.equal(clicks, 0);
+});
+
+test("Area settings reorder nested configuration and save field names/types without changing keys", async t => {
+  const window = installDom();
+  closeDom(t, window);
+  const settings = cloneSettings(DEFAULT_SETTINGS);
+  settings.advancedAreaFeatures = true;
+  settings.areas = [{ key: "work", label: "Work", icon: "W", feedToLLM: false, tabs: [
+    { key: "one", label: "One", view_mode: "table", fields: [
+      { key: "stage", label: "Stage", type: "text" }, { key: "other", label: "Other", type: "text" },
+    ] }, { key: "two", label: "Two", view_mode: "cards", fields: [] },
+  ] }, { key: "home", label: "Home", icon: "H", feedToLLM: true, tabs: [] }];
+  let saves = 0;
+  const plugin = { settings, sharedSettingsBaseline: () => sharedSettings(settings),
+    updateSettings: async (patch: Partial<typeof settings>) => { Object.assign(settings, cloneSettings(patch)); saves++; } };
+  const tab = new MorningOSSettingTab({} as never, plugin as never);
+  tab.containerEl = window.document.body;
+  const internals = tab as unknown as { selectedAreaKey: string; selectedTabKey: string; renderAreasSection: (el: HTMLElement) => void };
+  internals.selectedAreaKey = "work";
+  internals.selectedTabKey = "one";
+  internals.renderAreasSection(window.document.body);
+  const settle = async () => { await new Promise(resolve => window.setTimeout(resolve, 0)); };
+  const fields = () => [...window.document.querySelectorAll<HTMLElement>(".mos-field-row")];
+  const name = fields()[0].querySelector<HTMLInputElement>('[aria-label="Field name"]')!;
+  name.value = "Application stage";
+  name.dispatchEvent(new window.Event("input"));
+  fields()[0].querySelector<HTMLElement>(".mos-drag-handle")!.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+  await settle();
+  assert.deepEqual(settings.areas[0].tabs[0].fields.map(field => field.key), ["other", "stage"]);
+  assert.equal(fields()[1].querySelector<HTMLInputElement>('[aria-label="Field name"]')!.value, "Application stage", "reordering preserves unsaved field edits");
+  const type = fields()[1].querySelector<HTMLSelectElement>('[aria-label="Field type"]')!;
+  type.value = "dropdown"; type.dispatchEvent(new window.Event("change"));
+  fields()[1].querySelector<HTMLInputElement>('[aria-label="Dropdown options"]')!.value = "Applied, Interview";
+  fields()[1].querySelector<HTMLButtonElement>('[aria-label="Save field Stage"]')!.click();
+  await settle();
+  assert.deepEqual(settings.areas[0].tabs[0].fields[1], { key: "stage", label: "Application stage", type: "dropdown", options: ["Applied", "Interview"] });
+  window.document.querySelector<HTMLElement>('.mos-areas-tab-btn .mos-drag-handle')!.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+  await settle();
+  assert.deepEqual(settings.areas[0].tabs.map(tab => tab.key), ["two", "one"]);
+  window.document.querySelector<HTMLElement>('.mos-areas-nav-row .mos-drag-handle')!.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+  await settle();
+  assert.deepEqual(settings.areas.map(area => area.key), ["home", "work"]);
+  assert.equal(settings.areas[1].feedToLLM, false);
+  assert.equal(saves, 4);
+});
+
+test("type-changed table fields keep incompatible dates and unmatched dropdown values visible", t => {
+  const window = installDom();
+  closeDom(t, window);
+  const tab: TabConfig = { key: "tracker", label: "Tracker", view_mode: "table", fields: [
+    { key: "stage", label: "Stage", type: "dropdown", options: ["Applied"] },
+    { key: "when", label: "When", type: "date" },
+  ] };
+  const area: AreaConfig = { key: "work", label: "Work", icon: "W", feedToLLM: false, tabs: [tab] };
+  const task = item("legacy-values");
+  task.areas = [area.key]; task.tags = { work: "tracker", stage: "Research", when: "Next month" };
+  const plugin = viewPlugin({ ...DEFAULT_SETTINGS, areas: [area], advancedAreaFeatures: true });
+  const view = new AreaView(new WorkspaceLeaf(), plugin.settings as never, plugin as never, area.key);
+  const internals = view as unknown as { registry: Task[]; renderTableView: (el: HTMLElement, tab: TabConfig, area: AreaConfig) => void };
+  internals.registry = [task];
+  const container = window.document.body.createDiv();
+  internals.renderTableView(container, tab, area);
+  assert.equal(container.querySelector<HTMLSelectElement>(".mos-table-select")!.value, "Research");
+  assert.match(container.querySelector(".mos-table-select")!.textContent ?? "", /Research \(existing value\)/);
+  const date = container.querySelector<HTMLInputElement>(".mos-table-date-input")!;
+  assert.equal(date.type, "text"); assert.equal(date.value, "Next month");
+  assert.deepEqual(task.tags, { work: "tracker", stage: "Research", when: "Next month" });
+});
+
+
+test("area navigation, tabs, and table columns have no reorder controls", t => {
+  const window = installDom();
+  closeDom(t, window);
+  const settings = cloneSettings(DEFAULT_SETTINGS);
+  settings.advancedAreaFeatures = true;
+  settings.areas = [{ key: "work", label: "Work", icon: "W", feedToLLM: false, tabs: [
+    { key: "tracker", label: "Tracker", view_mode: "table", fields: [
+      { key: "first", label: "First", type: "text" }, { key: "second", label: "Second", type: "text" },
+    ] },
+  ] }];
+  let writes = 0;
+  const plugin = { ...viewPlugin(settings as unknown as Record<string, unknown>), settings,
+    sharedSettingsBaseline: () => sharedSettings(settings),
+    updateSettings: async () => { writes++; },
+  };
+  const view = new AreaView(new WorkspaceLeaf(), settings, plugin as never, "work");
+  const internals = view as unknown as { app: App; registry: Task[]; activeTab: string; render: () => void; containerEl: HTMLElement };
+  internals.app = Object.assign(new App(), { vault: { getAbstractFileByPath: () => null, adapter: { exists: async () => true, read: async () => "" } } });
+  internals.registry = [];
+  internals.activeTab = "tracker";
+  const shell = window.document.body.createDiv(); shell.createDiv(); shell.createDiv();
+  internals.containerEl = shell;
+  internals.render();
+  assert.ok(shell.querySelector(".morning-os-floating-areas"));
+  assert.ok(shell.querySelector(".mos-area-tabs"));
+  assert.ok(shell.querySelector(".mos-table th"));
+  assert.equal(shell.querySelector(".mos-drag-handle, [data-reorder-key]"), null);
+  shell.querySelector<HTMLElement>(".mos-btn-tab.is-active")!.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+  assert.equal(writes, 0);
+  assert.deepEqual(settings.areas[0].tabs[0].fields.map(field => field.key), ["first", "second"]);
 });

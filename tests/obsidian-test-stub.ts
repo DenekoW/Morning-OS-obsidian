@@ -83,9 +83,11 @@ class DropdownComponent {
 }
 export class Setting {
   settingEl: HTMLElement;
+  controlEl: HTMLElement;
   private readonly nameEl: HTMLElement;
   constructor(parent: HTMLElement) {
     this.settingEl = parent.createDiv({ cls: "setting-item" });
+    this.controlEl = this.settingEl;
     this.nameEl = this.settingEl.createDiv({ cls: "setting-item-name" });
   }
   setName(value: string): this { this.nameEl.textContent = value; return this; }

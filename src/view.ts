@@ -862,6 +862,16 @@ function loadViewOptions(app: App, key: string, legacyGroupKey: string): SavedVi
   };
 }
 
+/** Native date inputs silently blank incompatible strings after a field type change. */
+function preserveInvalidDate(input: HTMLInputElement, value: string): void {
+  if (!value || input.value === value) return;
+  input.type = "text";
+  input.value = value;
+  input.placeholder = "YYYY-MM-DD";
+  input.title = "Existing value is not a date. Enter a date as YYYY-MM-DD to correct it.";
+  input.setAttribute("aria-label", "Existing value (enter date as YYYY-MM-DD)");
+}
+
 function metadataText(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
@@ -2034,7 +2044,7 @@ export class AreaView extends ItemView {
     const headRow = thead.createEl("tr");
     headRow.createEl("th", { cls: "mos-table-th mos-table-check", text: "Kind" });
     headRow.createEl("th", { cls: "mos-table-th", text: "Name" });
-    for (const f of fields) headRow.createEl("th", { cls: "mos-table-th", text: f.label });
+    for (const field of fields) headRow.createEl("th", { cls: "mos-table-th", text: field.label });
     headRow.createEl("th", { cls: "mos-table-th mos-table-actions", text: "" });
 
     const tbody = table.createEl("tbody");
@@ -2099,6 +2109,7 @@ export class AreaView extends ItemView {
         if (f.type === "dropdown" && f.options?.length) {
           const sel = td.createEl("select", { cls: "mos-table-select" });
           sel.createEl("option", { value: "", text: "—" });
+          if (val && !f.options.includes(val)) sel.createEl("option", { value: val, text: `${val} (existing value)` }).selected = true;
           for (const opt of f.options) {
             const optEl = sel.createEl("option", { value: opt, text: opt });
             if (val === opt) optEl.selected = true;
@@ -2112,6 +2123,7 @@ export class AreaView extends ItemView {
         } else if (f.type === "date") {
           const dateIn = td.createEl("input", { type: "date", cls: "mos-table-date-input" });
           dateIn.value = val;
+          preserveInvalidDate(dateIn, val);
           dateIn.addEventListener("change", () => {
             const newTags = { ...task.tags };
             if (dateIn.value) newTags[f.key] = dateIn.value;
@@ -2623,6 +2635,7 @@ export class TaskEditModal extends ObsidianModal {
         if (fieldDef.type === "dropdown" && fieldDef.options?.length) {
           const sel = fRow.createEl("select", { cls: "mos-edit-input" });
           sel.createEl("option", { value: "", text: `— ${fieldDef.label} —` });
+          if (currentVal && !fieldDef.options.includes(currentVal)) sel.createEl("option", { value: currentVal, text: `${currentVal} (existing value)` }).selected = true;
           for (const opt of fieldDef.options) {
             const optEl = sel.createEl("option", { value: opt, text: opt });
             if (currentVal === opt) optEl.selected = true;
@@ -2634,6 +2647,7 @@ export class TaskEditModal extends ObsidianModal {
         } else if (fieldDef.type === "date") {
           const dateIn = fRow.createEl("input", { type: "date", cls: "mos-edit-input" });
           dateIn.value = currentVal;
+          preserveInvalidDate(dateIn, currentVal);
           dateIn.addEventListener("change", () => {
             if (dateIn.value) this.task.tags[fieldDef.key] = dateIn.value;
             else delete this.task.tags[fieldDef.key];
