@@ -839,7 +839,7 @@ type SavedViewOptions = {
   filters: FilterState;
 };
 
-function loadViewOptions(app: App, key: string, defaultDir: SortDir, legacyGroupKey: string): SavedViewOptions {
+function loadViewOptions(app: App, key: string, legacyGroupKey: string): SavedViewOptions {
   const raw: unknown = app.loadLocalStorage(key);
   const saved = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
   const rawFilters = saved.filters;
@@ -855,8 +855,8 @@ function loadViewOptions(app: App, key: string, defaultDir: SortDir, legacyGroup
   }
   const legacyGroup: unknown = app.loadLocalStorage(legacyGroupKey);
   return {
-    sortField: saved.sortField === "date_created" || saved.sortField === "date_modified" || saved.sortField === "date_completed" || saved.sortField === "name" ? saved.sortField : "date_created",
-    sortDir: saved.sortDir === "asc" || saved.sortDir === "desc" ? saved.sortDir : defaultDir,
+    sortField: saved.sortField === "date_created" || saved.sortField === "date_modified" || saved.sortField === "date_completed" || saved.sortField === "name" ? saved.sortField : "date_modified",
+    sortDir: saved.sortDir === "asc" || saved.sortDir === "desc" ? saved.sortDir : "desc",
     groupByStatus: typeof saved.groupByStatus === "boolean" ? saved.groupByStatus : typeof legacyGroup === "boolean" ? legacyGroup : true,
     filters,
   };
@@ -1687,8 +1687,8 @@ export class AreaView extends ItemView {
   private registry: TaskRegistry = [];
   private activeTab: string | null = null;
   private areaKey: string;
-  private sortField: SortField = "date_created";
-  private sortDir: SortDir = "asc";
+  private sortField: SortField = "date_modified";
+  private sortDir: SortDir = "desc";
   private floatingCleanup: (() => void) | null = null;
   private viewOptionsCleanup: (() => void) | null = null;
   private filters: FilterState = {};
@@ -1791,7 +1791,7 @@ export class AreaView extends ItemView {
   }
 
   private loadViewOptions(): void {
-    const saved = loadViewOptions(this.app, this.viewOptionsKey(), "asc", `mos-group-by-status-area-${this.areaKey}`);
+    const saved = loadViewOptions(this.app, this.viewOptionsKey(), `mos-group-by-status-area-${this.areaKey}`);
     this.sortField = saved.sortField;
     this.sortDir = saved.sortDir;
     this.groupByStatus = saved.groupByStatus;
@@ -2280,7 +2280,7 @@ export class DumpView extends ItemView {
   private settings: MorningOSSettings;
   private plugin: MorningOSPlugin;
   private registry: TaskRegistry = [];
-  private sortField: SortField = "date_created";
+  private sortField: SortField = "date_modified";
   private sortDir: SortDir = "desc";
   private floatingCleanup: (() => void) | null = null;
   private viewOptionsCleanup: (() => void) | null = null;
@@ -2376,7 +2376,7 @@ export class DumpView extends ItemView {
   private render() {
     if (!this.optionsLoaded) {
       this.optionsLoaded = true;
-      const saved = loadViewOptions(this.app, this.viewOptionsKey(), "desc", "mos-group-by-status-all-items");
+      const saved = loadViewOptions(this.app, this.viewOptionsKey(), this.allItems ? "mos-group-by-status-all-items" : "mos-group-by-status-inbox");
       this.sortField = saved.sortField;
       this.sortDir = saved.sortDir;
       this.groupByStatus = saved.groupByStatus;
@@ -2429,12 +2429,12 @@ export class DumpView extends ItemView {
         this.saveViewOptions();
         this.renderResults(results);
       },
-      showGrouping: this.allItems,
-      groupByStatus: this.allItems ? this.getGroupByStatus() : undefined,
-      onGroupByStatusChange: this.allItems ? (groupByStatus) => {
+      showGrouping: true,
+      groupByStatus: this.getGroupByStatus(),
+      onGroupByStatusChange: (groupByStatus) => {
         this.setGroupByStatus(groupByStatus);
         this.renderResults(results);
-      } : undefined,
+      },
       showUrgency: true,
     });
     this.renderResults(results);
@@ -2448,9 +2448,7 @@ export class DumpView extends ItemView {
       (this.allItems || (t.areas.length === 0 && (isItemActive(t) || hasOpenChildren(this.registry, t._id))))
     );
     tasks = applyFilters(tasks, this.filters, this.registry);
-    tasks = this.allItems
-      ? sortItemsByStatus(tasks, this.registry, this.sortField, this.sortDir, this.getGroupByStatus(), true)
-      : sortTasks(tasks, this.sortField, this.sortDir);
+    tasks = sortItemsByStatus(tasks, this.registry, this.sortField, this.sortDir, this.getGroupByStatus(), true);
 
     if (tasks.length === 0) {
       parent.createEl("p", { cls: "morning-os-empty-state", text: this.allItems ? "No items match these filters." : "All clear. Capture fast, organize later." });
@@ -2460,9 +2458,7 @@ export class DumpView extends ItemView {
         renderTaskRowShared(
           card, t, this.app, this, () => void this.refresh(), this.plugin, true, undefined, this.registry, false,
           getChildOnlySearchMatches(t, this.filters, this.registry),
-          children => this.allItems
-            ? sortItemsByStatus(children, this.registry, this.sortField, this.sortDir, this.getGroupByStatus())
-            : sortTasks(children, this.sortField, this.sortDir),
+          children => sortItemsByStatus(children, this.registry, this.sortField, this.sortDir, this.getGroupByStatus()),
         );
       }
     }

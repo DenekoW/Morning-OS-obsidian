@@ -1120,6 +1120,10 @@ test("view options survive recreation and remain independent by Area tab and lis
     return panel;
   };
   const shell = mount(makeArea());
+  const defaults = openViewOptions(shell);
+  assert.equal(defaults.querySelector<HTMLSelectElement>('select[aria-label="Sort field"]')!.value, "date_modified");
+  assert.match(defaults.querySelector('button[aria-label="Sort direction"]')!.textContent ?? "", /Descending/);
+  assert.equal(defaults.querySelector<HTMLInputElement>('input[aria-label="Group items by active status"]')!.checked, true);
   tab(shell, "Leads");
   const panel = sort(shell, "name");
   panel.querySelector<HTMLButtonElement>('button[aria-label="Sort direction"]')!.click();
@@ -1133,7 +1137,7 @@ test("view options survive recreation and remain independent by Area tab and lis
   search.value = "follow up";
   search.dispatchEvent(new window.Event("input"));
   tab(shell, "Jobs");
-  assert.equal(openViewOptions(shell).querySelector<HTMLSelectElement>('select[aria-label="Sort field"]')!.value, "date_created");
+  assert.equal(openViewOptions(shell).querySelector<HTMLSelectElement>('select[aria-label="Sort field"]')!.value, "date_modified");
   assert.equal(shell.querySelector<HTMLInputElement>('input[type="search"]')!.value, "");
   tab(shell, "Leads");
   const reopened = mount(makeArea());
@@ -1144,7 +1148,7 @@ test("view options survive recreation and remain independent by Area tab and lis
   assert.equal(restored.querySelector<HTMLInputElement>('input[aria-label="Group items by active status"]')!.checked, false);
   assert.equal(reopened.querySelector<HTMLInputElement>('input[type="search"]')!.value, "follow up");
   const saved = app.loadLocalStorage(`mos-view-options-v1-${JSON.stringify(["area", "career", "leads"])}`) as { sortDir: string };
-  assert.equal(saved.sortDir, "desc");
+  assert.equal(saved.sortDir, "asc");
 
   const makeList = (all: boolean) => new DumpView(new WorkspaceLeaf(), plugin.settings as never, plugin as never, all);
   sort(mount(makeList(false)), "name");
@@ -1155,7 +1159,7 @@ test("view options survive recreation and remain independent by Area tab and lis
   // Malformed stored values fall back safely; the existing grouping preference is retained.
   app.saveLocalStorage("mos-view-options-v1-inbox", { sortField: "bad", sortDir: "bad", filters: { status: "bad", query: 42 } });
   const invalid = mount(makeList(false));
-  assert.equal(openViewOptions(invalid).querySelector<HTMLSelectElement>('select[aria-label="Sort field"]')!.value, "date_created");
+  assert.equal(openViewOptions(invalid).querySelector<HTMLSelectElement>('select[aria-label="Sort field"]')!.value, "date_modified");
   app.saveLocalStorage(`mos-active-tab-area-career`, "removed");
   app.saveLocalStorage(`mos-group-by-status-area-career`, false);
   const fallback = mount(makeArea());
@@ -1202,7 +1206,7 @@ test("All Items and Inbox expose only their applicable view options", t => {
   inboxShell.createDiv();
   inboxInternals.containerEl = inboxShell;
   inboxInternals.render();
-  assert.equal(openViewOptions(inboxShell).querySelector('input[aria-label="Group items by active status"]'), null);
+  assert.equal(openViewOptions(inboxShell).querySelector<HTMLInputElement>('input[aria-label="Group items by active status"]')!.checked, true);
   assert.equal(inboxShell.textContent?.includes("Priority"), false);
 
   window.happyDOM.setViewport({ width: 480 });
@@ -1211,6 +1215,44 @@ test("All Items and Inbox expose only their applicable view options", t => {
   assert.equal(window.getComputedStyle(allShell.querySelector<HTMLElement>(".mos-view-options-overlay")!).position, "fixed");
   allShell.querySelector<HTMLButtonElement>(".mos-view-options-close")!.click();
   assert.equal(allOptionsButton.getAttribute("aria-expanded"), "false");
+});
+
+test("list defaults sort by latest modification within active status groups", t => {
+  const window = installDom();
+  closeDom(t, window);
+  for (const allItems of [false, true]) {
+    const app = new App();
+    const plugin = viewPlugin({ ...DEFAULT_SETTINGS });
+    const older = item("older-active");
+    older.date_created = "2026-09-30";
+    older.date_modified = "2026-09-01";
+    const newer = item("newer-active");
+    newer.date_created = "2026-08-01";
+    newer.date_modified = "2026-09-20";
+    const inactive = item("newest-inactive");
+    inactive.status_completion = "done";
+    inactive.date_modified = "2026-09-30";
+    // Keep the inactive Inbox root visible through its unfinished child.
+    const child = item("unfinished-child");
+    child.parent_id = inactive._id;
+    const view = new DumpView(new WorkspaceLeaf(), plugin.settings as never, plugin as never, allItems);
+    const shell = window.document.body.createDiv();
+    shell.createDiv(); shell.createDiv();
+    Object.assign(view, { app, containerEl: shell, registry: [older, newer, inactive, child] });
+    (view as unknown as { render: () => void }).render();
+    t.after(() => view.onClose());
+    const panel = openViewOptions(shell);
+    assert.equal(panel.querySelector<HTMLSelectElement>('select[aria-label="Sort field"]')!.value, "date_modified");
+    assert.match(panel.querySelector('button[aria-label="Sort direction"]')!.textContent ?? "", /Descending/);
+    assert.equal(panel.querySelector<HTMLInputElement>('input[aria-label="Group items by active status"]')!.checked, true);
+    const titles = [...shell.querySelectorAll(".morning-os-card > .morning-os-task-row .morning-os-task-text")].map(el => el.textContent);
+    assert.deepEqual(titles, [inactive.text, newer.text, older.text], "unfinished groups remain active; latest edits come first");
+    const group = panel.querySelector<HTMLInputElement>('input[aria-label="Group items by active status"]')!;
+    group.checked = false;
+    group.dispatchEvent(new window.Event("change"));
+    const key = allItems ? "mos-view-options-v1-all-items" : "mos-view-options-v1-inbox";
+    assert.equal((app.loadLocalStorage(key) as { groupByStatus: boolean }).groupByStatus, false);
+  }
 });
 
 test("Inbox mutation refresh keeps its toolbar, open options, and scroll container mounted", async t => {
