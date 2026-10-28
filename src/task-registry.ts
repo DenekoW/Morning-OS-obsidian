@@ -1,10 +1,12 @@
 import { App } from "obsidian";
-import type { AreaConfig, CalendarReminderHistory, CalendarReminderMutation, TabConfig, Task, TaskRegistry, CompletionStatus, TodayPriority, ItemKind, NoteStatus, MetadataValue } from "./types";
+import type { AreaConfig, TabConfig, Task, TaskRegistry, CompletionStatus, PipelineStage } from "./types";
+import { PIPELINE_STAGES } from "./types";
+import { writeHistorySnapshot } from "./agent/history";
 import { todayStr } from "./utils";
-import { getStateStore, LEGACY_REGISTRY_PATH, STATE_PATH } from "./data/state-store";
-import { cloneItemDraft, forceDraftFields, mergeDraftTags, reconcileItemDraft, type DraftConflict, type DraftConflictChoice, type ItemDraft } from "./data/draft-reconciliation";
+import { syncTasksToDailyNote } from "./daily-note-sync";
 
-const REGISTRY_PATH = STATE_PATH;
+const REGISTRY_PATH = "00-MOC/Morning OS Tasks.md";
+const LEGACY_REGISTRY_PATH = "_generated/tasks.json";
 const AREAS_RECOVERY_BACKUP_PATH = "_generated/backups/tasks-before-areas-recovery.json";
 
 export interface AreasRecoveryResult {
@@ -18,26 +20,21 @@ export interface AreasRecoveryResult {
   error?: string;
 }
 
-export type DraftSaveResult =
-  | { status: "saved" }
-  | { status: "conflict"; conflicts: DraftConflict[] }
-  | { status: "deleted" };
-
-async function stateUpdate(app: App, operation: string, mutator: (state: import("./data/schemas").MorningState) => void): Promise<void> {
-  await getStateStore(app).update(mutator, operation);
-}
-
 function generateId(): string {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 }
 
 export async function loadRegistry(app: App): Promise<TaskRegistry> {
-  const state = await getStateStore(app).read();
-  return JSON.parse(JSON.stringify(state.items)) as TaskRegistry;
-}
-
-export async function initializeRegistryState(app: App): Promise<{ migrated: boolean; itemCount: number }> {
-  return getStateStore(app).initialize();
+  let tasks: TaskRegistry = [];
+  if (await app.vault.adapter.exists(REGISTRY_PATH)) {
+    tasks = parseTaskMarkdown(await app.vault.adapter.read(REGISTRY_PATH));
+  } else if (await app.vault.adapter.exists(LEGACY_REGISTRY_PATH)) {
+    const raw = JSON.parse(await app.vault.adapter.read(LEGACY_REGISTRY_PATH)) as Record<string, unknown>[];
+    tasks = raw.map(migrateTask);
+    await saveRegistry(app, tasks);
+  }
+  await syncTasksToDailyNote(app, tasks);
+  return tasks;
 }
 
 /**
@@ -57,21 +54,22 @@ export async function recoverRegistryAreas(app: App, configuredAreas: AreaConfig
     backupCreated: false,
   };
 
-  // The legacy file is immutable after a successful state migration.
-  if (await app.vault.adapter.exists(STATE_PATH)) return result;
+  // The Markdown registry is authoritative once present. A retained legacy JSON
+  // file is a migration backup and must never overwrite or reshape live state.
+  if (await app.vault.adapter.exists(REGISTRY_PATH)) return result;
   if (!(await app.vault.adapter.exists(LEGACY_REGISTRY_PATH))) return result;
 
   let raw: string;
   let tasks: Record<string, unknown>[];
   try {
-    raw = await app.vault.adapter.read(REGISTRY_PATH);
+    raw = await app.vault.adapter.read(LEGACY_REGISTRY_PATH);
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed) || !parsed.every(isRecord)) {
       throw new Error("registry is not an array of task records");
     }
     tasks = parsed;
   } catch (err) {
-    return { ...result, error: `Could not read ${REGISTRY_PATH}: ${(err as Error).message}` };
+    return { ...result, error: `Could not read ${LEGACY_REGISTRY_PATH}: ${(err as Error).message}` };
   }
 
   const recoveredAreaConfigs = JSON.parse(JSON.stringify(configuredAreas)) as AreaConfig[];
@@ -141,7 +139,7 @@ export async function recoverRegistryAreas(app: App, configuredAreas: AreaConfig
       await app.vault.adapter.write(AREAS_RECOVERY_BACKUP_PATH, raw);
       result.backupCreated = true;
     }
-    await app.vault.adapter.write(REGISTRY_PATH, JSON.stringify(tasks, null, 2));
+    await app.vault.adapter.write(LEGACY_REGISTRY_PATH, JSON.stringify(tasks, null, 2));
     if (result.settingsChanged) replaceAreaConfigs(configuredAreas, recoveredAreaConfigs);
     return result;
   } catch (err) {
@@ -163,6 +161,24 @@ function readStringRecord(value: unknown): Record<string, string> {
   return Object.fromEntries(
     Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].length > 0)
   );
+}
+
+function readTaskProgress(value: unknown): Task["progress"] {
+  if (!isRecord(value) || value.type !== "count") return null;
+  const current = Number(value.current); const target = Number(value.target);
+  if (!Number.isFinite(current) || !Number.isFinite(target) || target <= 0) return null;
+  return { type: "count", current: Math.max(0, Math.round(current)), target: Math.round(target), unit: typeof value.unit === "string" && value.unit.trim() ? value.unit.trim() : undefined };
+}
+
+function readDailyProgressTarget(value: unknown): Task["daily_progress_target"] {
+  if (!isRecord(value) || typeof value.date !== "string") return null;
+  const target = Number(value.target); const startingValue = Number(value.startingValue);
+  if (!Number.isFinite(target) || target <= 0 || !Number.isFinite(startingValue)) return null;
+  return { date: value.date, target: Math.round(target), startingValue: Math.max(0, Math.round(startingValue)) };
+}
+
+function readPipelineStage(value: unknown): PipelineStage | null {
+  return PIPELINE_STAGES.includes(value as PipelineStage) ? (value as PipelineStage) : null;
 }
 
 function ensureArea(areas: AreaConfig[], key: string): { area: AreaConfig; created: boolean } {
@@ -204,25 +220,48 @@ function replaceAreaConfigs(target: AreaConfig[], source: AreaConfig[]): void {
   target.splice(0, target.length, ...source);
 }
 
-function migrateTask(t: Record<string, unknown>): Task {
+export function migrateTask(t: Record<string, unknown>): Task {
+  const plannedDate = typeof t.planned_date === "string" && t.planned_date
+    ? t.planned_date
+    : t.is_today === true || t.in_today === true
+      ? todayStr()
+      : null;
+  const effort = typeof t.effort_minutes === "number" && Number.isFinite(t.effort_minutes) && t.effort_minutes >= 0
+    ? Math.round(t.effort_minutes)
+    : null;
+  const execution = ["ready", "waiting", "blocked"].includes(String(t.execution_state))
+    ? t.execution_state as Task["execution_state"]
+    : "ready";
+  const focusOrder = Number.isInteger(t.focus_order) && Number(t.focus_order) > 0
+    ? Number(t.focus_order)
+    : null;
   return {
     _id:               (t._id ?? t.id ?? generateId()) as string,
     text:              (t.text ?? "") as string,
     notes:             (t.notes ?? "") as string,
     areas:           (t.areas ?? []) as string[],
-    tags:              (t.tags ?? {}) as Record<string, MetadataValue>,
+    tags:              (t.tags ?? {}) as Record<string, string>,
     status_completion: migrateCompletion(t),
     status_priority:   (t.status_priority ?? t.priority ?? "regular") as "red" | "regular",
     status_urgency:    (t.status_urgency ?? t.urgency ?? "none") as Task["status_urgency"],
-    is_today:          (t.is_today ?? t.in_today ?? false) as boolean,
+    is_today:          plannedDate === todayStr(),
     is_deleted:        (t.is_deleted ?? t.deleted ?? false) as boolean,
     parent_id:         (t.parent_id ?? null) as string | null,
+    project:           typeof t.project === "string" ? t.project : "",
+    eisenhower_priority: typeof t.eisenhower_priority === "string" ? t.eisenhower_priority as Task["eisenhower_priority"] : "",
+    planned_date:      plannedDate,
+    effort_minutes:    effort,
+    context:           typeof t.context === "string" ? t.context : "",
+    execution_state:   execution,
+    focus_order:       plannedDate === todayStr() && execution === "ready" ? focusOrder : null,
+    routine_id:        typeof t.routine_id === "string" ? t.routine_id : null,
+    progress:          readTaskProgress(t.progress),
+    daily_progress_target: readDailyProgressTarget(t.daily_progress_target),
+    pipeline_stage:    migrateCompletion(t) === "done" ? "complete" : readPipelineStage(t.pipeline_stage),
     date_created:      (t.date_created ?? t.created ?? todayStr()) as string,
     date_modified:     (t.date_modified ?? t.modified ?? todayStr()) as string,
     date_completed:    (t.date_completed ?? t.completed ?? null) as string | null,
     date_remind:       (t.date_remind ?? t.remind_date ?? null) as string | null,
-    kind:               (t.kind === "note" ? "note" : "task") as ItemKind,
-    status_note:        t.kind === "note" && t.status_note === "archived" ? "archived" : (t.kind === "note" ? "active" : undefined),
   };
 }
 
@@ -232,8 +271,111 @@ function migrateCompletion(t: Record<string, unknown>): CompletionStatus {
   return "open";
 }
 
+export function normalizeRegistry(registry: TaskRegistry): TaskRegistry {
+  const normalized = registry.map(task => migrateTask(task as unknown as Record<string, unknown>));
+  const focus = normalized
+    .filter(task => task.focus_order !== null)
+    .sort((left, right) => (left.focus_order ?? 999) - (right.focus_order ?? 999))
+    .slice(0, 3);
+  for (const task of normalized) task.focus_order = null;
+  focus.forEach((task, index) => { task.focus_order = index + 1; });
+  return normalized;
+}
+
+export function parseTaskMarkdown(markdown: string): TaskRegistry {
+  const lines = markdown.split(/\r?\n/);
+  const tasks: TaskRegistry = [];
+  let currentProject: string | null = null;
+  let inDeletedSection = false;
+  for (let index = 0; index < lines.length; index++) {
+    const projectHeading = lines[index].match(/^## Project:\s*(.*)$/);
+    if (projectHeading) {
+      currentProject = projectHeading[1].trim() === "未归属项目" ? "" : projectHeading[1].trim();
+      inDeletedSection = false;
+      continue;
+    }
+    if (/^## Deleted\s*$/.test(lines[index])) {
+      currentProject = null;
+      inDeletedSection = true;
+      continue;
+    }
+    const checkbox = lines[index].match(/^\s*-\s+\[([ xX])\]\s+(.*)$/);
+    if (!checkbox) continue;
+    let metadata: Record<string, unknown> = {};
+    const comment = lines[index + 1]?.match(/^\s*<!--\s*morning-os\s+(\{.*\})\s*-->\s*$/);
+    if (comment) {
+      try { metadata = JSON.parse(comment[1]) as Record<string, unknown>; index++; } catch { /* legacy plain task */ }
+    }
+    const done = checkbox[1].toLowerCase() === "x";
+    tasks.push(migrateTask({
+      ...metadata,
+      text: checkbox[2].trim(),
+      project: inDeletedSection || currentProject === null ? metadata.project : currentProject,
+      is_deleted: inDeletedSection || Boolean(metadata.is_deleted),
+      status_completion: done ? "done" : "open",
+      date_completed: done ? metadata.date_completed || todayStr() : null,
+    }));
+  }
+  return normalizeRegistry(tasks);
+}
+
+function taskMarkdownEntry(task: Task): string {
+  const checkbox = task.status_completion === "done" ? "x" : " ";
+  const metadata = { ...task, text: undefined, is_today: undefined };
+  const text = String(task.text || "").replace(/\r?\n/g, " ");
+  return `- [${checkbox}] ${text}\n  <!-- morning-os ${JSON.stringify(metadata)} -->`;
+}
+
+export function serializeTaskMarkdown(registry: TaskRegistry): string {
+  const normalized = normalizeRegistry(registry);
+  const active = normalized.filter(task => !task.is_deleted);
+  const deleted = normalized.filter(task => task.is_deleted);
+  const projects = new Map<string, Task[]>();
+  for (const task of active) {
+    const project = task.project.trim() || "未归属项目";
+    const tasks = projects.get(project) ?? [];
+    tasks.push(task);
+    projects.set(project, tasks);
+  }
+  const lines = [
+    "---", "morning-os-task-registry: 2", "---", "", "# Morning OS Tasks", "",
+    "> 此文件由 Morning OS 管理，可通过 Git 同步。任务正文和复选框可直接编辑；请保留每项下方的 morning-os 元数据注释。", "",
+  ];
+  for (const [project, tasks] of projects) {
+    lines.push(`## Project: ${project.replace(/\r?\n/g, " ")}`, "", ...tasks.map(taskMarkdownEntry), "");
+  }
+  if (deleted.length) lines.push("## Deleted", "", ...deleted.map(taskMarkdownEntry), "");
+  return lines.join("\n");
+}
+
 export async function saveRegistry(app: App, registry: TaskRegistry): Promise<void> {
-  await getStateStore(app).replaceItems(registry);
+  const normalized = normalizeRegistry(registry);
+  const markdown = serializeTaskMarkdown(normalized);
+  const folder = REGISTRY_PATH.split("/").slice(0, -1).join("/");
+  if (folder && !(await app.vault.adapter.exists(folder))) await app.vault.adapter.mkdir(folder);
+  const temporaryPath = `${REGISTRY_PATH}.tmp`;
+  await app.vault.adapter.write(temporaryPath, markdown);
+  const verified = parseTaskMarkdown(await app.vault.adapter.read(temporaryPath));
+  const expectedIds = normalized.map(task => task._id).sort();
+  const verifiedIds = verified.map(task => task._id).sort();
+  if (verified.length !== normalized.length || JSON.stringify(expectedIds) !== JSON.stringify(verifiedIds)) {
+    throw new Error("Task Markdown verification failed");
+  }
+  await app.vault.adapter.write(REGISTRY_PATH, markdown);
+  // Record our own write so the vault watcher can skip it — only external
+  // edits (mos-float widget, manual file edits, sync tools) should reload.
+  lastSelfWrittenMarkdown = markdown;
+  try { await app.vault.adapter.remove(temporaryPath); } catch { /* best effort */ }
+  await syncTasksToDailyNote(app, normalized);
+}
+
+// External-edit coordination: the desktop float widget and manual file edits
+// change the registry outside the plugin. saveRegistry records what it wrote
+// so the file watcher only reloads on changes it did not make itself.
+let lastSelfWrittenMarkdown: string | null = null;
+
+export function isRegistrySelfWrite(content: string): boolean {
+  return lastSelfWrittenMarkdown !== null && content === lastSelfWrittenMarkdown;
 }
 
 function parseTagsFromText(text: string): { cleanText: string; areas: string[]; tags: Record<string, string>; date_remind: string | null } {
@@ -265,81 +407,57 @@ function parseTagsFromText(text: string): { cleanText: string; areas: string[]; 
 
 export function createTask(
   rawText: string,
-  opts: Partial<Pick<Task, "status_priority" | "status_urgency" | "areas" | "tags" | "is_today" | "date_remind" | "parent_id">> = {}
+  opts: Partial<Pick<Task, "status_priority" | "status_urgency" | "areas" | "tags" | "is_today" | "date_remind" | "parent_id" | "project" | "eisenhower_priority" | "planned_date" | "effort_minutes" | "context" | "execution_state" | "focus_order" | "routine_id" | "progress" | "daily_progress_target" | "pipeline_stage">> = {}
 ): Task {
-  const now = Date.now();
+  const today = todayStr();
   const parsed = parseTagsFromText(rawText);
+  const plannedDate = opts.planned_date !== undefined ? opts.planned_date : opts.is_today ? today : null;
   return {
     _id: generateId(),
     text: parsed.cleanText,
     notes: "",
-    areas: opts.areas !== undefined ? [...opts.areas] : [...parsed.areas],
-    tags: opts.tags !== undefined ? cloneMetadata(opts.tags) : parsed.tags,
+    areas: opts.areas !== undefined ? opts.areas : parsed.areas,
+    tags: opts.tags !== undefined ? opts.tags : parsed.tags,
     status_completion: "open",
     status_priority: opts.status_priority ?? "regular",
     status_urgency: opts.status_urgency ?? "none",
-    is_today: opts.is_today ?? false,
+    is_today: plannedDate === today,
     is_deleted: false,
     parent_id: opts.parent_id ?? null,
-    date_created: now,
-    date_modified: now,
+    project: opts.project ?? "",
+    eisenhower_priority: opts.eisenhower_priority ?? "",
+    planned_date: plannedDate,
+    effort_minutes: opts.effort_minutes ?? null,
+    context: opts.context ?? "",
+    execution_state: opts.execution_state ?? "ready",
+    focus_order: plannedDate === today && (opts.execution_state ?? "ready") === "ready" ? opts.focus_order ?? null : null,
+    routine_id: opts.routine_id ?? null,
+    progress: opts.progress ?? null,
+    daily_progress_target: opts.daily_progress_target ?? null,
+    pipeline_stage: opts.pipeline_stage ?? null,
+    date_created: today,
+    date_modified: today,
     date_completed: null,
     date_remind: opts.date_remind !== undefined ? opts.date_remind : parsed.date_remind,
-    kind: "task",
   };
 }
 
-export function createNote(rawText: string, opts: Partial<Pick<Task, "areas" | "tags" | "is_today" | "parent_id">> = {}): Task {
-  const item = createTask(rawText, opts);
-  item.kind = "note";
-  item.status_note = "active";
-  return item;
-}
+export type ProjectTaskDestination = "backlog" | "today";
 
-/**
- * A child receives a snapshot of the parent's placement/custom metadata at
- * creation time. It never remains linked to those values afterwards.
- */
-export function createChildItem(rawText: string, parent: Task, kind: ItemKind = "task"): Task {
-  const options = {
-    parent_id: parent._id,
-    areas: cloneMetadata(parent.areas),
-    tags: cloneMetadata(parent.tags),
-  };
-  return kind === "note" ? createNote(rawText, options) : createTask(rawText, options);
-}
-
-function cloneMetadata<T extends MetadataValue | MetadataValue[] | Record<string, MetadataValue>>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
-}
-
-export async function changeItemKind(app: App, id: string, kind: ItemKind): Promise<void> {
-  await stateUpdate(app, kind === "note" ? "convert-to-note" : "convert-to-task", state => {
-    const item = state.items.find(candidate => candidate._id === id);
-    if (!item || item.kind === kind) return;
-    if (kind === "note") {
-      item.status_note = item.status_completion === "open" ? "active" : "archived";
-    } else {
-      item.status_completion = item.status_note === "active" ? "open" : "done";
-      if (item.status_completion === "open") item.date_completed = null;
-      item.status_note = undefined;
-    }
-    item.kind = kind;
-    if (!calendarReminderActive(item)) appendCalendarMutation(item, state);
-    item.date_modified = Date.now();
-  });
-}
-
-export async function setNoteStatus(app: App, id: string, status: NoteStatus): Promise<void> {
-  await stateUpdate(app, status === "archived" ? "archive-note" : "unarchive-note", state => {
-    const item = state.items.find(candidate => candidate._id === id);
-    if (!item || item.kind !== "note" || item.status_note === status) return;
-    item.status_note = status;
-    // Keep the legacy status field coherent for existing projections and exports.
-    item.status_completion = status === "archived" ? "done" : "open";
-    item.date_completed = status === "archived" ? Date.now() : null;
-    if (status === "archived") appendCalendarMutation(item, state);
-    item.date_modified = Date.now();
+export function createProjectTask(
+  rawText: string,
+  project: string,
+  priority: Task["eisenhower_priority"],
+  destination: ProjectTaskDestination = "backlog",
+): Task {
+  const cleanProject = project.trim();
+  if (!rawText.trim()) throw new Error("Task text is required");
+  if (!cleanProject) throw new Error("Project is required");
+  return createTask(rawText, {
+    project: cleanProject,
+    eisenhower_priority: priority,
+    status_priority: priority === "urgent_important" ? "red" : "regular",
+    is_today: destination === "today",
   });
 }
 
@@ -348,274 +466,78 @@ export function getChildren(registry: TaskRegistry, parentId: string): Task[] {
 }
 
 export function hasOpenChildren(registry: TaskRegistry, parentId: string): boolean {
-  return getChildren(registry, parentId).some(t => t.kind === "note" ? t.status_note !== "archived" : t.status_completion === "open");
+  return getChildren(registry, parentId).some(t => t.status_completion !== "done");
 }
 
-/** Attach an ungrouped item to a root parent. One nesting level is enforced here,
- * rather than relying on callers to manipulate parent_id safely. */
-export async function attachItemToParent(app: App, childId: string, parentId: string): Promise<void> {
-  await stateUpdate(app, "group-item", state => {
-    const child = state.items.find(item => item._id === childId);
-    const parent = state.items.find(item => item._id === parentId);
-    if (!child || !parent) throw new Error("item or parent was not found");
-    if (child.parent_id === parentId) return;
-    if (child._id === parent._id) throw new Error("an item cannot be its own parent");
-    if (child.parent_id !== null) throw new Error("only root items can be attached");
-    if (parent.parent_id !== null) throw new Error("a child cannot have children");
-    if (child.is_deleted || parent.is_deleted) throw new Error("deleted items cannot be grouped");
-    child.parent_id = parentId;
-    child.date_modified = Date.now();
-  });
-}
-
-/** Detaching retains all materialized values already stored on the child. */
-export async function detachItemFromParent(app: App, id: string): Promise<void> {
-  await stateUpdate(app, "ungroup-item", state => {
-    const item = state.items.find(candidate => candidate._id === id);
-    if (!item || item.parent_id === null) return;
-    item.parent_id = null;
-    item.date_modified = Date.now();
-  });
-}
-
-
-function applyReminderDateChange(item: Task, patch: Partial<Task>): void {
-  if (!("date_remind" in patch) || item.date_remind === patch.date_remind) return;
-  item.date_remind = patch.date_remind ?? null;
-  item.reminder_occurrence = item.date_remind ? { token: generateId() } : null;
-}
-
-function calendarReminderActive(item: Task): boolean {
-  return !item.is_deleted && item.date_remind !== null && item.status_completion === "open" &&
-    (item.kind !== "note" || item.status_note === "active");
-}
-
-function appendCalendarMutation(item: Task, state: import("./data/schemas").MorningState, allowEnroll = false, forceInactive = false): void {
-  let history = item.calendar_reminder;
-  if (!history) {
-    if (!allowEnroll || !state.calendar?.enabled || state.calendar.calendar.status !== "ready" || !calendarReminderActive(item)) return;
-    history = { version: 1, providerAttempted: false, mutations: [] };
-    item.calendar_reminder = history;
-  }
-  const previous = history.mutations[history.mutations.length - 1];
-  const active = !forceInactive && calendarReminderActive(item);
-  const next: CalendarReminderMutation = {
-    id: generateId(),
-    predecessorId: previous?.id ?? null,
-    active,
-    title: item.text,
-    date: active ? item.date_remind : null,
-    time: item.reminder_time ?? previous?.time ?? state.calendar?.defaultTime ?? "09:00",
-    timeZone: item.reminder_time_zone ?? previous?.timeZone ?? state.calendar?.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
-  };
-  if (previous && previous.active === next.active && previous.title === next.title && previous.date === next.date &&
-    previous.time === next.time && previous.timeZone === next.timeZone) return;
-  history.mutations.push(next);
-}
-
-/** Enroll an existing item only after explicit calendar setup. Legacy reminders
- * receive one durable starting identity; no notification acknowledgement is changed. */
-export async function enrollCalendarReminder(app: App, id: string, time: string, timeZone: string): Promise<void> {
-  await stateUpdate(app, "enroll-calendar-reminder", state => {
-    const item = state.items.find(candidate => candidate._id === id);
-    if (!item || item.calendar_reminder) return;
-    const active = calendarReminderActive(item);
-    const mutation: CalendarReminderMutation = {
-      id: `legacy-${item._id}-${item.reminder_occurrence?.token ?? item.date_remind ?? "none"}`,
-      predecessorId: null,
-      active,
-      title: item.text,
-      date: active ? item.date_remind : null,
-      time,
-      timeZone,
-    };
-    const history: CalendarReminderHistory = { version: 1, providerAttempted: false, mutations: [mutation] };
-    item.calendar_reminder = history;
-    item.date_modified = Date.now();
-  });
-}
 
 export async function updateTask(app: App, id: string, patch: Partial<Task>): Promise<void> {
-  await stateUpdate(app, "edit-item", state => {
-    const item = state.items.find(task => task._id === id);
-    if (!item) return;
-    const previousMutation = item.calendar_reminder?.mutations[item.calendar_reminder.mutations.length - 1];
-    const wasCalendarArmed = previousMutation?.active ?? calendarReminderActive(item);
-    const changed = Object.keys(patch).some(field => {
-      const key = field as keyof Task;
-      return JSON.stringify(item[key]) !== JSON.stringify(patch[key]);
-    });
-    if (!changed) return;
-    const { date_remind: _dateRemind, ...otherPatch } = patch;
-    Object.assign(item, otherPatch);
-    applyReminderDateChange(item, patch);
-    if ("text" in patch || "date_remind" in patch || "reminder_time" in patch || "reminder_time_zone" in patch ||
-      "status_completion" in patch || "status_note" in patch || "is_deleted" in patch) {
-      const resetSchedule = "date_remind" in patch || "reminder_time" in patch || "reminder_time_zone" in patch;
-      appendCalendarMutation(item, state, resetSchedule, !resetSchedule && !wasCalendarArmed && calendarReminderActive(item));
-    }
-    item.date_modified = Date.now();
-  });
+  const registry = await loadRegistry(app);
+  const idx = registry.findIndex(t => t._id === id);
+  if (idx === -1) return;
+  const raw = { ...registry[idx], ...patch, date_modified: todayStr() } as Record<string, unknown>;
+  if (Object.prototype.hasOwnProperty.call(patch, "planned_date")) raw.is_today = patch.planned_date === todayStr();
+  if (Object.prototype.hasOwnProperty.call(patch, "is_today")) raw.planned_date = patch.is_today ? todayStr() : null;
+  const next = migrateTask(raw);
+  if (!next.is_today || next.execution_state !== "ready" || next.status_completion !== "open") next.focus_order = null;
+  registry[idx] = next;
+  await saveRegistry(app, registry);
 }
-
-/** Applies only fields changed by an editor since it opened. Unrelated external
- * changes remain in place; conflicting fields require an explicit UI choice. */
-export async function saveItemDraft(app: App, base: ItemDraft, draft: ItemDraft, forceFields: readonly DraftConflictChoice[] = []): Promise<DraftSaveResult> {
-  let outcome: DraftSaveResult = { status: "saved" };
-  await getStateStore(app).update(state => {
-    const item = state.items.find(candidate => candidate._id === base._id);
-    if (!item || item.is_deleted) {
-      outcome = { status: "deleted" };
-      return;
-    }
-    const reconciliation = reconcileItemDraft(base, draft, item);
-    const authorized = reconciliation.conflicts.filter(conflict => forceFields.some(choice =>
-      typeof choice === "object"
-        ? choice.field === conflict.field && choice.key === conflict.key
-        : choice === conflict.field && (choice !== "tags" || conflict.key === undefined),
-    ));
-    const unresolved = reconciliation.conflicts.filter(conflict => !authorized.includes(conflict));
-    if (unresolved.length) {
-      outcome = { status: "conflict", conflicts: unresolved };
-      return;
-    }
-    const forced = forceFields.length ? forceDraftFields(base, draft, item, forceFields) : {};
-    const patch = { ...reconciliation.patch, ...forced };
-    // Do this only after rejecting every unresolved conflict.  A single merge
-    // avoids later conflict choices replacing independently edited tag keys.
-    if ("tags" in reconciliation.patch || "tags" in forced) {
-      patch.tags = mergeDraftTags(base, draft, item);
-    }
-    if (Object.keys(patch).length === 0) return;
-    const previousMutation = item.calendar_reminder?.mutations[item.calendar_reminder.mutations.length - 1];
-    const wasCalendarArmed = previousMutation?.active ?? calendarReminderActive(item);
-    const { date_remind: _dateRemind, ...otherPatch } = patch;
-    Object.assign(item, otherPatch);
-    applyReminderDateChange(item, patch);
-    if ("text" in patch || "date_remind" in patch || "reminder_time" in patch || "reminder_time_zone" in patch ||
-      "status_completion" in patch || "status_note" in patch || "is_deleted" in patch) {
-      const resetSchedule = "date_remind" in patch || "reminder_time" in patch || "reminder_time_zone" in patch;
-      appendCalendarMutation(item, state, resetSchedule, !resetSchedule && !wasCalendarArmed && calendarReminderActive(item));
-    }
-    item.date_modified = Date.now();
-  }, "edit item");
-  return outcome;
-}
-
-export { cloneItemDraft };
 
 export async function setTaskStatus(app: App, id: string, status: CompletionStatus): Promise<void> {
-  await stateUpdate(app, status === "done" ? "complete-task" : "reopen-task", state => {
-    const item = state.items.find(candidate => candidate._id === id);
-    if (!item || item.kind === "note" || item.status_completion === status) return;
-    item.status_completion = status;
-    item.date_completed = status === "done" ? Date.now() : null;
-    if (status !== "open") appendCalendarMutation(item, state);
-    item.date_modified = Date.now();
+  const existing = (await loadRegistry(app)).find(item => item._id === id);
+  if (status === "done") {
+    if (existing?.progress && existing.progress.current < existing.progress.target) throw new Error(`Overall progress must reach ${existing.progress.target} ${existing.progress.unit ?? ""} before completion.`);
+  }
+  const today = todayStr();
+  await updateTask(app, id, {
+    status_completion: status,
+    date_completed: status === "done" ? today : null,
+    // Keep the pipeline bar in sync: finishing a task fills it; reopening one
+    // drops it back to "working" instead of leaving a stale "complete".
+    pipeline_stage: status === "done" ? "complete" : existing?.pipeline_stage === "complete" ? "working" : existing?.pipeline_stage ?? null,
   });
 }
 
-export async function moveTaskToToday(app: App, id: string, priority: TodayPriority): Promise<void> {
-  await stateUpdate(app, "add-to-today", state => {
-    const item = state.items.find(candidate => candidate._id === id);
-    if (!item || (item.is_today && item.status_priority === priority)) return;
-    item.is_today = true;
-    item.status_priority = priority;
-    item.date_modified = Date.now();
-  });
+export async function setPipelineStage(app: App, id: string, stage: PipelineStage | null): Promise<void> {
+  await updateTask(app, id, { pipeline_stage: stage });
 }
 
-export async function changeTodayPriority(app: App, id: string, priority: TodayPriority): Promise<void> {
-  await stateUpdate(app, "change-today-priority", state => {
-    const item = state.items.find(candidate => candidate._id === id);
-    if (!item || !item.is_today || item.status_priority === priority) return;
-    item.status_priority = priority;
-    item.date_modified = Date.now();
-  });
-}
-
-export async function removeTaskFromToday(app: App, id: string): Promise<void> {
-  await stateUpdate(app, "remove-from-today", state => {
-    const task = state.items.find(item => item._id === id);
-    if (!task || !task.is_today) return;
-    task.is_today = false;
-    const occurrence = task.reminder_occurrence;
-    if (occurrence && occurrence.handledToken === occurrence.token) {
-      occurrence.dismissedToken = occurrence.token;
-    }
-    task.date_modified = Date.now();
-  });
-}
-
-export async function setTaskReminder(app: App, id: string, date: string | null): Promise<void> {
-  await stateUpdate(app, date === null ? "clear-reminder" : "set-reminder", state => {
-    const task = state.items.find(item => item._id === id);
-    if (!task || task.date_remind === date) return;
-    applyReminderDateChange(task, { date_remind: date });
-    appendCalendarMutation(task, state, true);
-    task.date_modified = Date.now();
-  });
+export async function moveTaskToToday(app: App, id: string, priority: "red" | "regular"): Promise<void> {
+  await updateTask(app, id, { planned_date: todayStr(), status_priority: priority });
 }
 
 export async function deleteTask(app: App, id: string): Promise<void> {
-  await stateUpdate(app, "delete-group", state => {
-    const root = state.items.find(task => task._id === id);
-    if (!root || root.is_deleted) return;
-    const batch = generateId();
-    const affected = state.items.filter(task => !task.is_deleted && (task._id === id || task.parent_id === id));
-    for (const task of affected) {
-      task.is_deleted = true;
-      task.is_today = false;
-      task.deletion_batch_id = batch;
-      appendCalendarMutation(task, state);
-      task.date_modified = Date.now();
+  const registry = await loadRegistry(app);
+  const today = todayStr();
+  for (const t of registry) {
+    if (t._id === id || t.parent_id === id) {
+      t.is_deleted = true;
+      t.is_today = false;
+      t.planned_date = null;
+      t.focus_order = null;
+      t.date_modified = today;
     }
-    root.deleted_member_ids = affected.map(task => task._id);
-  });
+  }
+  await saveRegistry(app, registry);
 }
 
 export async function restoreTask(app: App, id: string): Promise<void> {
-  await stateUpdate(app, "restore-group", state => {
-    const root = state.items.find(task => task._id === id);
-    if (!root || !root.is_deleted) return;
-    const batch = root.deletion_batch_id;
-    if (!batch) throw new Error("deleted item has no recovery batch");
-    for (const task of state.items) {
-      if (task.deletion_batch_id === batch && (task._id === id || task.parent_id === id)) {
-        task.is_deleted = false;
-        task.date_modified = Date.now();
-      }
-    }
-  });
-}
-
-/** Permanently remove a root and its current direct children. Callers must show a
- * confirmation/preview before invoking this irreversible operation. */
-export async function purgeTask(app: App, id: string): Promise<number> {
-  let purged = 0;
-  await getStateStore(app).update(state => {
-    const root = state.items.find(item => item._id === id);
-    if (!root) return;
-    const ids = new Set([id]);
-    if (root.parent_id === null) {
-      for (const child of state.items) if (child.parent_id === id) ids.add(child._id);
-    }
-    for (const item of state.items) {
-      if (!ids.has(item._id) || !item.calendar_reminder) continue;
-      const latest = item.calendar_reminder.mutations[item.calendar_reminder.mutations.length - 1];
-      if (latest.active || latest.delivery?.status !== "confirmed") {
-        throw new Error("calendar cancellation must be confirmed before permanent deletion");
-      }
-    }
-    purged = ids.size;
-    state.items = state.items.filter(item => !ids.has(item._id));
-  }, "purge-group");
-  return purged;
+  await updateTask(app, id, { is_deleted: false });
 }
 
 export async function clearNextDayTasks(app: App): Promise<void> {
-  // Kept as a compatibility no-op. Today membership is persistent, not a dated schedule.
-  void app;
+  const today = todayStr();
+  const d = new Date(today + "T12:00:00");
+  d.setDate(d.getDate() - 1);
+  const yesterdayStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+  const registry = await loadRegistry(app);
+
+  // Snapshot yesterday's state before clearing
+  await writeHistorySnapshot(app, yesterdayStr, registry);
+
+  for (const task of registry) task.is_today = task.planned_date === today;
+  await saveRegistry(app, registry);
 }
 
 export function getActiveReminders(registry: TaskRegistry): Task[] {
@@ -623,33 +545,9 @@ export function getActiveReminders(registry: TaskRegistry): Task[] {
   return registry.filter(t =>
     !t.is_deleted &&
     t.status_completion === "open" &&
-    (t.kind !== "note" || t.status_note === "active") &&
     t.date_remind !== null &&
-    t.date_remind <= today &&
-    t.reminder_occurrence?.handledToken !== t.reminder_occurrence?.token
+    t.date_remind <= today
   );
 }
 
-export async function promoteDueReminders(app: App): Promise<number> {
-  let promoted = 0;
-  await getStateStore(app).update(state => {
-    const today = todayStr();
-    for (const task of state.items) {
-      if (task.is_deleted || task.status_completion !== "open" || (task.kind === "note" && task.status_note !== "active") || !task.date_remind || task.date_remind > today) continue;
-      const occurrence = task.reminder_occurrence ?? { token: `legacy-${task._id}-${task.date_remind}` };
-      task.reminder_occurrence = occurrence;
-      if (occurrence.handledToken === occurrence.token || occurrence.dismissedToken === occurrence.token) continue;
-      if (task.is_today) {
-        occurrence.handledToken = occurrence.token;
-        continue;
-      }
-      task.is_today = true;
-      occurrence.handledToken = occurrence.token;
-      task.date_modified = Date.now();
-      promoted++;
-    }
-  }, "promote-reminders");
-  return promoted;
-}
-
-export { generateId, LEGACY_REGISTRY_PATH, REGISTRY_PATH };
+export { generateId, REGISTRY_PATH };

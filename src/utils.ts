@@ -1,15 +1,14 @@
-export function todayStr(d = new Date()): string {
+export function todayStr(): string {
+  return dateStrFromTimestamp(new Date());
+}
+
+export function dateStrFromTimestamp(value: string | number | Date): string {
+  const d = value instanceof Date ? value : new Date(value);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-/** Legacy date-only values keep their day; event timestamps use the local day. */
-export function itemDateDay(value: string | number | null): string | null {
-  return typeof value === "number" ? todayStr(new Date(value)) : value;
-}
-
-/** Interpret legacy days as local midnight, never as UTC midnight. */
-export function itemDateTime(value: string | number): number {
-  if (typeof value === "number") return value;
-  const [year, month, day] = value.split("-").map(Number);
-  return new Date(year, month - 1, day).getTime();
+export function addDays(date: string, days: number): string {
+  const value = new Date(`${date}T12:00:00`);
+  value.setDate(value.getDate() + days);
+  return dateStrFromTimestamp(value);
 }

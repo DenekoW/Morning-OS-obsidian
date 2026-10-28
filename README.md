@@ -1,179 +1,174 @@
-﻿# Morning OS
+# Morning OS
 
-[![Obsidian Plugin](https://img.shields.io/badge/Obsidian-Plugin-7c3aed?logo=obsidian&logoColor=white)](https://community.obsidian.md/plugins/morning-os)
-[![Downloads](https://img.shields.io/badge/dynamic/json?url=https://raw.githubusercontent.com/obsidianmd/obsidian-releases/master/community-plugin-stats.json&query=%24%5B%22morning-os%22%5D.downloads&label=downloads&color=7c3aed)](https://community.obsidian.md/plugins/morning-os)
+> 一个以执行、复盘和连续性为核心的 Obsidian 晨间工作台。
 
-Manage your tasks, notes, and life areas inside Obsidian, then bring your priorities together on a focused Home dashboard. Add your rules and goals for a daily briefing, with optional AI curation.
+这是基于 [Satya Akhil Galla 的 Morning OS](https://github.com/satyagalla/Morning-OS-obsidian) 定制的研究/工作流版本。它在原有 Home、Inbox、Areas 和 Trash 之上，加入 Focus、任务管线、项目推进、专注计时、Routines、进度记录、Daily Note 工作日志，以及需要审查后才能写入的 AI 助手。
 
-[![Morning OS dashboard in dark mode](images/dashboard-dark.png)](images/dashboard-dark.png)
+**当前版本：0.6.2 · 需要 Obsidian 1.8.7 或更高版本 · 支持桌面端和移动端**
 
-## What you can do
+## 1. 安装与初始化
 
-| Feature | How it works |
-|---|---|
-| **Home** | See your Today items alongside identity, goals, rules, suggestions, and wins. Identity, goals, and rules have visibility settings. |
-| **Inbox** | Capture tasks and notes, then organize them into Areas and tabs. Unorganized groups stay in Inbox while the parent or a child is active. |
-| **All Items** | Browse non-deleted tasks and notes, with search and filters. |
-| **Areas** | Organize work and personal life with configurable Areas, tabs, card or table views, and custom fields. Advanced Area features are optional. |
-| **Tasks and notes** | Add sub-tasks, priority, reminders, and metadata. Complete or dismiss tasks; archive notes. |
-| **Today** | Explicitly select the items you want to focus on. Red alert and regular priorities keep urgent work visible. |
-| **Reminders** | Due date reminders bring active items into Today when the plugin processes them. Each reminder occurrence is handled once. |
-| **Wins** | Record wins from Home into your configured Wins log. |
-| **Trash and recovery** | Restore deleted items, permanently delete them, or recover item state from verified snapshots. |
+### 手动安装
 
-Today is a persistent selection. Items stay selected across days until you complete, dismiss, archive, delete, or explicitly remove them. Removing a reminder-promoted item from Today does not bring that same reminder occurrence back; explicitly reset the reminder to create another occurrence.
+1. 在仓库的 `research-workflow` 分支下载 `main.js`、`manifest.json` 和 `styles.css`。
+2. 在你的库中创建 `.obsidian/plugins/morning-os/`，把这三个文件放进去。
+3. 重启 Obsidian，在 **设置 → 第三方插件** 中启用 Morning OS。
+4. 点击左侧太阳图标，选择初始化根目录（默认 `Essential`），然后点击 **Initialize system**。
+5. 在 **设置 → Morning OS** 中按需调整路径、首页模块、任务行为和 AI 服务。
 
-Tasks and notes are stored in `_generated/data/state.json`. You manage them directly in the plugin; a daily note is not required for everyday task management.
+仓库不包含 `data.json`。首次启用时，插件会使用通用默认设置并在本地生成该文件；你的路径、Areas、API Key 和运行状态不会随源码发布。
 
-[![Morning OS dashboard in light mode](images/dashboard-light.png)](images/dashboard-light.png)
-
-## Setup
-
-Requires **Obsidian 1.11.4 or later**. The core plugin works on desktop, iOS, and Android without a terminal, subprocesses, or native dependencies.
-
-1. Install and enable **Morning OS** from **Settings → Community plugins → Browse**.
-2. Click or tap the sun icon to open Morning OS.
-3. Choose a root folder during onboarding. Morning OS creates Area notes, an Identity Anchor, and a Wins log, with sample rules and goals to get started. Existing files are preserved.
-4. Add tasks or notes in Inbox, organize them into Areas, and select your priorities for Today.
-5. Edit your Area notes with your own rules and goals, then use **Regenerate briefing** to update Home.
-
-**No API key is required.** You can manage items and generate a briefing directly from your configured notes. For AI curation and new suggestions, enable **Use AI for briefings** in Morning OS settings, select a provider, and enter its credentials.
-
-Supported providers: **OpenAI, Google Gemini, Groq, and AWS Bedrock**.
-
-## Briefings and optional AI
-
-Onboarding generates an initial briefing. After setup, **Regenerate briefing** is the explicit action that rebuilds it. Opening a view, editing a task, or receiving synced state does not trigger an AI call or regenerate the briefing.
-
-The briefing reads mapped sections from your Area Markdown notes and recent entries from your Wins log. With AI enabled and credentials configured, it also uses task context to curate rules and goals, order wins, and generate suggestions. You can choose AI or direct mode for individual briefing sections and adjust the displayed counts.
-
-Area **Feed to LLM** permissions control Area-note input and item context. An item assigned to multiple Areas is eligible only when every assigned Area permits it; selecting it for Today does not override those permissions. The prompt also includes yesterday's wins and completed-task text, so Area permissions should not be treated as a blanket exclusion for all historical content.
-
-With AI disabled or no credentials available, briefing fields use your source content directly. New AI suggestions require a provider call. AI output supplies briefing content; it does not edit your source notes or task state.
-
-Briefings are saved to `_generated/briefs/YYYY-MM-DD.json`. They contain rules, goals, suggestions, and wins. Home reads tasks and notes separately from the current item state, so item changes appear without regenerating a briefing.
-
-## Your vault files
-
-With the default onboarding root, the structure looks like this:
-
-```text
-Essential/
-  Areas/
-    Health.md                     # Example tactical and emotional rules
-    Career.md                     # Example short- and long-term goals
-    ...                           # Other configured Areas
-  Identity-Anchor.md
-  Wins.md                         # Wins entered from Home
-_generated/
-  data/
-    state.json                    # Authoritative tasks and notes
-    settings.json                 # Optional, explicitly initialized shared settings
-  briefs/
-    YYYY-MM-DD.json
-  snapshots/                      # Verified item-state backups
-  recovery/                       # Preserved recovery files
-  widgets/                        # Default widget-note destinations
-  feedback/
-    reactions/
-```
-
-The default briefing section mappings are `Tactical Rules`, `Emotional Rules`, `Short Term`, and `Long Term`. For example, an Area note can contain:
-
-```markdown
-## Tactical Rules
-- Start the hardest task within 15 minutes of sitting down
-
-## Short Term
-- Finish the portfolio update this week
-
-## Long Term
-- Build a sustainable independent career
-```
-
-Configure Area briefing sources, section mappings, source paths, and output paths in settings. Daily-note and older source-file settings remain for legacy migration; daily-note checkboxes are not the current task store. If present, `_generated/tasks.json` is retained as a legacy migration source.
-
-## Mobile and sync
-
-[![Morning OS mobile view](images/mobile.png)](images/mobile.png)
-
-Install Morning OS on each device and use your vault sync provider to transfer its data. Sync must include `_generated/data/state.json` for tasks and notes to travel between devices, plus your source notes and briefing files for the same Home content.
-
-| Data | What to sync |
-|---|---|
-| `_generated/data/state.json` | Tasks, notes, Today selections, reminders, and occurrence acknowledgements. |
-| Area notes, Identity Anchor, Wins log, and `_generated/briefs/` | Briefing sources and saved briefing content. |
-| `_generated/data/settings.json` | Shared preferences, once explicitly initialized. |
-| Widget Markdown destinations | Display notes for widgets on other devices. |
-| `_generated/snapshots/` and `_generated/recovery/` | Recovery files, if included by your sync rules. These are not a complete vault backup. |
-
-Plugin configuration under `.obsidian/plugins/morning-os/` contains device-local credentials, widget export configuration, and runtime settings. Keep it out of sync; configure credentials and widget exports separately on each device.
-
-### Sharing preferences across devices
-
-Shared settings are optional. They include Areas, tabs, fields, privacy permissions, Home and briefing preferences, and source paths. Credentials, widget exports, onboarding, and runtime bookkeeping remain local.
-
-1. Update Morning OS on every device. Older plugin versions cannot read the current schema 4 item state.
-2. Choose a baseline device and open **Settings → Morning OS → General → Shared vault settings → Initialize from this device**.
-3. Sync `_generated/data/settings.json` before opening the updated plugin on the other devices. They adopt the delivered configuration without initializing their own defaults.
-
-Initialization preserves a credential-free configuration backup. If an adopted shared settings file becomes missing or invalid, the plugin retains its last-good configuration and blocks shared edits until the valid file returns. Concurrent edits to the same shared field report conflicts. Vault sync does not guarantee lossless concurrent offline edits; test your setup in a disposable two-device vault first.
-
-### Remotely Save configuration
-
-On each device, keep **Sync config directory** disabled and enable **Sync underscore items**. Check include/exclude rules for all source and output paths you use.
-
-If using **Regex of paths to allow**, this example includes the default source folder and all generated content:
-
-```regex
-^Essential(?:/|$)
-^_generated(?:/|$)
-```
-
-This is an allowlist: add rules for any other source folders or widget destinations. It includes snapshots, recovery files, feedback, and transaction artifacts under `_generated/` as well as active state. Transaction artifacts are not cross-device locks.
-
-Morning OS refreshes views when delivered item state or shared settings change. Remotely Save transfers vault files; it does not run Morning OS while Obsidian is closed or deliver calendar alerts. See [shared settings behavior](docs/architecture.md#shared-settings) for details.
-
-## Home Screen widget notes
-
-Export Identity, short- or long-term goals, Today tasks, Inbox tasks, or All tasks to an owned Markdown note through **Settings → Morning OS → General → Widget notes**. Add an export, choose its source and destination, and enable it. Use **Refresh widget notes** from the command palette for a manual refresh.
-
-On iPhone or iPad, select the exported note in Obsidian's **View Note** Home Screen widget, bookmarking it first if required by the installed app's picker. Widget notes are display-only: editing their text or checkboxes does not update items.
-
-A synced note can be selected on another device, but its export configuration stays local. Configure a local export there if that device should refresh it. Refresh timing depends on Obsidian running and your sync provider. See [widget setup and limitations](docs/widgets.md).
-
-## Backups and recovery
-
-Open **Settings → Morning OS → Advanced → Data safety & recovery** to create a verified backup, export item state, or restore a supported snapshot. Restore replaces the whole Morning OS item state rather than merging changes.
-
-The plugin also snapshots before migration and at most once per changed local day. It retains the latest 20 automatic snapshots; manual and recovery copies are protected. Invalid or unsupported active state blocks ordinary writes instead of being replaced with an empty task list. Snapshots cover item state, so keep your normal vault backup as well. See [generated files and retention](docs/generated-files.md).
-
-## Experimental Google Calendar reminders
-
-An optional, disabled-by-default publisher is available under **Settings → Morning OS → Calendar (experimental)**. It requires an operator-controlled HTTPS OAuth relay, one explicitly selected publishing device, and a plugin-created dedicated test calendar.
-
-This integration remains experimental and has not passed the device acceptance gates for general use. Mobile login and calendar-client notification behavior still need real-device verification. Google credentials stay in device-local Obsidian SecretStorage. See [calendar setup and acceptance limits](docs/calendar.md) before testing it in a disposable vault.
-
-## Privacy and feedback
-
-The plugin reads configured source notes and its own item state for briefings; it does not scan the whole vault for AI context. Provider calls require AI to be enabled, an AI section to need a call, and credentials to be available. The prompt includes the selected briefing inputs described above, rather than your full vault.
-
-Optional calendar publishing sends reminder titles and schedules with ownership metadata to Google through the configured integration. Submitting in-app feedback posts to an external proxy only when that build has feedback proxy configuration; otherwise the form reports that feedback is not configured. You can always [open a GitHub issue](https://github.com/satyagalla/Morning-OS-obsidian/issues).
-
-## Development
+### 从源码构建
 
 ```bash
 npm install
-npm run build    # Type-check and create a production build
-npm test         # Run state, UI, widget, and integration tests
-npm run dev      # Watch, build, and copy to the configured vault
-npm run deploy   # Type-check, build, and copy to the configured vault
+npm test
+npm run build
 ```
 
-`npm run dev` and `npm run deploy` write to the vault selected by `OBSIDIAN_PLUGIN_DIR`; the build configuration includes a default path. Set it to a disposable test vault before using those commands. `npm run build` and `npm test` do not deploy the plugin.
+构建后，将 `main.js`、`manifest.json`、`styles.css` 复制到上述插件目录。
 
-See [commands](docs/commands.md), [architecture](docs/architecture.md), and [extending the briefing agent](docs/extending-the-agent.md) for contributor details.
+开发时也可以运行：
 
----
+```bash
+npm run dev      # 监听构建；设置 OBSIDIAN_PLUGIN_DIR 后自动复制
+npm run deploy   # 生产构建并复制到 OBSIDIAN_PLUGIN_DIR
+```
 
-Built by [@satyagalla](https://github.com/satyagalla) · [Report an issue](https://github.com/satyagalla/Morning-OS-obsidian/issues)
+## 2. 推荐的每日流程
+
+1. **收集**：在 Inbox 快速记录任务，之后再分配到 Area 或 Project。
+2. **计划**：在 Morning Planning 查看未完成任务、项目建议和可继续的进度任务，把今天要做的任务加入 Today。
+3. **聚焦**：从 Today 的就绪任务中选择 1–3 项加入 Focus，按顺序执行。
+4. **推进**：用 Start / Working / Collecting / Complete 管线更新阶段；需要量化推进的任务使用进度和每日目标。
+5. **记录**：专注、阅读、Routine、任务进度和完成记录可写入 Daily Note 的 Work Log。
+6. **收尾**：在 Shutdown 记录仍挂念的事项，并选择明天的第一项候选任务。
+
+## 3. 核心功能
+
+### Focus：1–3 项执行队列
+
+- Focus 是 Today 的有序子集，不是另一份独立任务清单。
+- 只有 Today 中状态为 **Ready** 的任务适合进入 Focus；Waiting 或 Blocked 任务会被移出 Focus。
+- 通过任务菜单设置 `Focus #1`、`Focus #2`、`Focus #3`，或用上下按钮调整顺序。
+- **Remove** 只移出 Focus，不会把任务移出 Today。
+- 点击 **Start** 开始关联任务的专注计时；**+ Focus** 也可开始不关联任务的独立计时。
+- 计时支持暂停、继续、完成、附带笔记完成和丢弃。首页会显示当天累计专注时长与次数。
+
+### Today 与任务管线
+
+- Today 是当天完整的承诺清单，分为 Red alert 和 Regular。
+- 每项任务都有 **Start → Working → Collecting → Complete** 阶段条。
+- **In flight** 汇总所有已进入管线的未完成任务，并按阶段显示数量。
+- 点击 Complete 会走正常完成流程；重新打开任务时，管线也会恢复为未完成状态。
+- 任务支持子任务、笔记、提醒、项目、Eisenhower 优先级、预计耗时、上下文和执行状态。
+- 任务编辑器通过 X、Escape 或背景关闭时会先保存改动；只有 **Discard** 会明确放弃修改。
+
+### Morning Planning：晨间计划
+
+- 汇总此前未完成的任务、项目下一步建议和可继续的进度任务。
+- 可设置进度任务的今日增量目标，或把 Backlog 任务加入 Today。
+- 如果昨晚在 Shutdown 选择了第一项候选任务，可直接从这里开始。
+- 点击 **Complete planning** 记录计划完成状态，并在启用 Daily Note 同步时写入 `Today's Plan`。
+- **Plan my day** 会生成可审查的计划提案；AI 不可用时可使用本地、确定性的备用提案。
+
+### Projects：项目推进
+
+- 项目可以独立于任务存在，因此空项目也会保留。
+- 每个项目可设置一个明确的 **Next action**，并关联到可编辑任务。
+- 从项目创建任务时，可选择 Eisenhower 优先级，以及进入 Backlog 还是 Today。
+- 支持编辑、重命名和删除项目。删除项目不会删除任务或 Routine，只会清除它们的项目关联。
+- **Review project** 和 **Weekly review** 通过 AI 提案辅助复盘，写入前需要确认。
+
+### Routines、阅读与进度
+
+- Routine 支持 Daily / Weekly 周期，以及 Check / Duration / Count 三种计量方式。
+- 可设置目标、单位并关联项目；支持记录进度和修正累计值。
+- 阅读记录区分 **Read** 与 **Skim**；只有 Read 计入每周阅读目标。
+- 任务可设置总量型进度（当前值、目标值、单位）和每日增量目标。
+- **Log progress** 支持增加进度或直接设置总进度；达到总目标前，进度任务不能直接完成。
+
+### Shutdown：收工与明日连续性
+
+- 汇总当天专注时长和会话次数。
+- 记录 `Still on my mind`，并选择 `Tomorrow’s first task candidate`。
+- 点击 **Close the day** 保存状态；启用 Daily Note 同步时，同时写入 Shutdown 区块。
+
+### Inbox、Areas 与 Trash
+
+- **Inbox**：快速捕获，之后再整理。
+- **Areas**：按生活或工作领域组织任务、目标和笔记；支持自定义标签页、字段、卡片或表格视图。
+- **Trash**：软删除任务，避免误删后立即丢失。
+- 任务文本中的 `[[链接]]` 和 `#标签` 可渲染并支持输入补全。
+
+## 4. AI 功能与安全边界
+
+### 可选提供商
+
+OpenAI、DeepSeek、Google Gemini、Groq、AWS Bedrock。
+
+在 **设置 → Morning OS → AI provider** 选择服务并填写凭据。模型 ID 可按服务要求调整。
+
+### 没有 API Key 时
+
+- 关闭 **Use AI for briefings** 后，简讯可直接从本地库内容生成，不联系 AI 服务。
+- 本地任务、Focus、Projects、Routines、计时、进度和 Daily Note 功能仍可使用。
+- Plan my day 提供本地备用计划；其他需要模型理解或生成的功能需要可用凭据。
+
+### 写入前审查
+
+- Plan my day、Review project、Weekly review 返回结构化提案，不会直接改写任务。
+- 提案以任务标题、项目和优先级展示，隐藏内部任务 ID。
+- 只有经过校验并在审查窗口中确认的变更才会应用。
+- Morning Planning 中的 **Ask AI** 支持查询和任务操作；写操作按风险确认，并记录到 Recent AI activity，可执行 Undo。
+
+### 数据与凭据
+
+- 不启用 AI 时，简讯在本地生成。
+- 启用 AI 后，与当前功能相关的任务、项目、目标或已配置 Area 内容会发送给所选提供商；插件不会把整个库作为提示词上传。
+- API Key 保存在 Obsidian 的本地 `data.json` 中。**不要提交、分享或截图公开该文件。**
+- 本仓库已忽略 `data.json`，源码中的凭据字段均为空。
+
+## 5. 文件与同步
+
+主要文件如下，路径均相对于库根目录：
+
+```text
+00-MOC/Morning OS Tasks.md       # Markdown 任务注册表
+_generated/briefs/               # 每日简讯
+_generated/activity-state.json   # Routines、专注和阅读状态
+_generated/progress-events.json  # 任务进度事件
+_generated/project-state.json    # 项目状态与 Next action
+_generated/workflow/             # 每日 Planning / Shutdown 状态
+_generated/ai-task-activity.json # AI 任务操作与撤销记录
+_generated/backups/              # 迁移和恢复备份
+Essential/Daily/YYYY-MM-DD.md    # 默认 Daily Note 目录，可配置
+```
+
+Daily Note 同步由 **Task behavior → Sync tasks to today’s Daily Note** 控制。任务区块只更新已经存在的当天日记；计划、工作日志和 Shutdown 服务会按功能需要创建当天日记。若 Obsidian 的 Daily Notes 核心插件配置了目录，该目录优先于 Morning OS 中的备用目录。
+
+任务注册表是可读的 Markdown。手动编辑时请保留每项下方的 `morning-os` 元数据注释。外部工具或同步程序修改注册表后，插件会自动重新加载并刷新视图。
+
+也可以通过以下 URL 从外部工具打开 Morning OS：
+
+```text
+obsidian://morning-os?vault=<URL 编码后的库名>
+```
+
+## 6. 从旧版本迁移
+
+如果你从 0.2.x 或早期基于 Daily Note 的版本升级：
+
+1. 先备份整个库。
+2. 在 **设置 → Morning OS → Vault migration** 执行 **Migrate vault to areas**。
+3. 检查 Areas、任务、目标和 Wins 是否完整。
+
+迁移是可重复执行的，旧文件会归档到 `_archive/pre-migration/`。已有 `_generated/tasks.json` 会迁移为 Markdown 注册表；恢复 Area 信息前会保留备份。
+
+## 7. 隐私友好的仓库约定
+
+- `data.json`、依赖目录、环境文件和本地代理配置均不纳入版本控制。
+- 文档和测试只使用通用示例，不包含个人库路径、真实项目名、任务内容或凭据。
+- 发布前运行 `npm test` 和 `npm run build`，并检查构建产物中没有环境变量注入的代理地址或密钥。
+
+完整版本变化见 [CHANGELOG.md](CHANGELOG.md)。原始项目与许可证归原作者所有，本分支保留 MIT License。

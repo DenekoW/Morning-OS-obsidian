@@ -2,8 +2,11 @@
 node_modules/
 obsidian/
 
-# Environment
+# Environment and personal Obsidian runtime state
 .env
+.env.*
+!.env.example
+data.json
 .claude/
 .codex/
 .agents/

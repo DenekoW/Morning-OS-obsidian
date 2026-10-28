@@ -34,6 +34,23 @@ async function callOpenAI(system: string, user: string, apiKey: string, model: s
   return (response.json as OpenAIResponse).choices[0].message.content;
 }
 
+export async function callDeepSeek(system: string, user: string, apiKey: string, model: string): Promise<string> {
+  const response = await requestUrl({
+    url: "https://api.deepseek.com/chat/completions",
+    method: "POST",
+    headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: "system", content: system }, { role: "user", content: user }],
+      temperature: 0.2,
+      max_tokens: 2048,
+      response_format: { type: "json_object" },
+      thinking: { type: "disabled" },
+    }),
+  });
+  return (response.json as OpenAIResponse).choices[0].message.content;
+}
+
 async function callGroq(system: string, user: string, apiKey: string, model: string): Promise<string> {
   const response = await requestUrl({
     url: "https://api.groq.com/openai/v1/chat/completions",
@@ -159,6 +176,7 @@ export async function callLLM(system: string, user: string, settings: MorningOSS
   const provider = settings.intelligenceProvider;
   switch (provider) {
     case "openai":  return callOpenAI(system, user, settings.openaiApiKey, settings.intelligenceModel);
+    case "deepseek": return callDeepSeek(system, user, settings.deepseekApiKey, settings.intelligenceModel);
     case "groq":    return callGroq(system, user, settings.groqApiKey, settings.intelligenceModel);
     case "gemini":  return callGemini(system, user, settings.geminiApiKey, settings.intelligenceModel);
     case "bedrock": return callBedrock(system, user, settings);

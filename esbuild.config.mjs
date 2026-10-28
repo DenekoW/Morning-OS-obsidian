@@ -24,7 +24,7 @@ const prod = process.argv[2] === "production";
 const watch = process.argv[2] === "watch";
 const deploy = process.argv[2] === "deploy";
 
-const PLUGIN_DIR = process.env.OBSIDIAN_PLUGIN_DIR ?? "D:/Productivity/OS/.obsidian/plugins/morning-os";
+const PLUGIN_DIR = process.env.OBSIDIAN_PLUGIN_DIR ?? "";
 
 const builtins = [
   "assert", "buffer", "child_process", "cluster", "console", "constants",
@@ -99,4 +99,3 @@ if (watch) {
   await ctx.rebuild();
   await ctx.dispose();
 }
-

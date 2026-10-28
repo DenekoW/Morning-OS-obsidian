@@ -19,7 +19,7 @@ function getAllVaultTags(app: App): string[] {
 
 // Attaches [[wikilink]] and #tag type-ahead to a plain <input> — mirrors Obsidian's
 // native editor autocomplete, which plain text inputs don't get for free.
-export class TaskTextSuggest extends AbstractInputSuggest<SuggestItem> {
+class TaskTextSuggest extends AbstractInputSuggest<SuggestItem> {
   private triggerStart = -1;
   private triggerKind: "file" | "tag" | null = null;
 
@@ -27,19 +27,7 @@ export class TaskTextSuggest extends AbstractInputSuggest<SuggestItem> {
     super(app, inputEl);
   }
 
-  open(): void {
-    // Mobile can show an empty suggestion sheet above the keyboard on focus.
-    // Returning [] from getSuggestions alone does not prevent the sheet opening.
-    if (!this.getSuggestions(this.inputEl.value).length) {
-      this.close();
-      return;
-    }
-    super.open();
-  }
-
   protected getSuggestions(query: string): SuggestItem[] {
-    this.triggerStart = -1;
-    this.triggerKind = null;
     const trigger = this.findTrigger(query);
     if (!trigger) return [];
     this.triggerStart = trigger.start;

@@ -1,13 +1,13 @@
 {
   "name": "morning-os",
-  "version": "0.3.2",
+  "version": "0.6.2",
   "description": "Personal Knowledge OS - Morning briefing dashboard for Obsidian",
   "main": "main.js",
   "scripts": {
     "dev": "node esbuild.config.mjs watch",
     "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
     "deploy": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs deploy",
-    "test": "node scripts/run-state-safety-tests.mjs"
+    "test": "tsx --test tests/*.test.ts"
   },
   "keywords": [],
   "author": "Satya Akhil Galla",
@@ -15,9 +15,9 @@
   "devDependencies": {
     "@types/node": "^20.0.0",
     "esbuild": "^0.21.0",
-    "happy-dom": "^20.14.5",
     "obsidian": "latest",
-    "typescript": "^5.4.0"
+    "typescript": "^5.4.0",
+    "tsx": "^4.20.0"
   },
   "dependencies": {
     "emoji-picker-element": "^1.29.1"

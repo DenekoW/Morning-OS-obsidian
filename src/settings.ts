@@ -1,21 +1,19 @@
-import { App, Notice, PluginSettingTab, Setting } from "obsidian";
+import { App, PluginSettingTab, Setting } from "obsidian";
 import type MorningOSPlugin from "./main";
 import type { AreaConfig, FieldDef, LLMSectionMapping } from "./types";
-import { getStateStore } from "./data/state-store";
-import type { StateSnapshot } from "./data/state-store";
-import { hasActiveEditingSession } from "./editing-session";
-import type { WidgetNoteExport, WidgetSource } from "./widgets";
-import { attachReorder, moveEntry } from "./reorder";
-import { todayStr } from "./utils";
-import { cloneSettings, SHARED_SETTINGS_KEYS } from "./data/shared-settings";
-import type { SharedSettings } from "./data/shared-settings";
 
 type NumericSettingsKey = { [K in keyof MorningOSSettings]: MorningOSSettings[K] extends number ? K : never }[keyof MorningOSSettings];
 
 export interface MorningOSSettings {
   // Plugin display paths
   briefsDir: string;
+  taskBoardPath: string;
   dailyNoteDir: string;
+  syncTasksToDailyNote: boolean;
+  dailyTaskHeading: string;
+  dailyPlanHeading: string;
+  workLogHeading: string;
+  shutdownHeading: string;
   feedbackDir: string;
   sectionWins: string;
 
@@ -24,6 +22,7 @@ export interface MorningOSSettings {
   sourceEmotionalRules: string;
   sourceGoals: string;
   sourceTechnicalTasks: string;
+  sourceHobbyTasks: string;
   sourceIdentity: string;
 
   // Daily note section headings
@@ -42,6 +41,7 @@ export interface MorningOSSettings {
   modeTacticalRules: boolean;
   modeIdentityRules: boolean;
   modeGoals: boolean;
+  modeHobbyTasks: boolean;
   modeSuggestion: boolean;
   modeWins: boolean;
 
@@ -56,6 +56,7 @@ export interface MorningOSSettings {
   awsSecretAccessKey: string;
   awsRegion: string;
   openaiApiKey: string;
+  deepseekApiKey: string;
   geminiApiKey: string;
   groqApiKey: string;
 
@@ -64,12 +65,14 @@ export interface MorningOSSettings {
   identityRulesCount: number;
   goalsShortTermCount: number;
   goalsLongTermCount: number;
+  hobbyTasksCount: number;
   suggestionCount: number;
 
   // Home dashboard visibility
   showIdentity: boolean;
   showGoals: boolean;
   showRulesForToday: boolean;
+  showSuggestions: boolean;
 
   // Carry detection
   carryLookbackDays: number;
@@ -100,26 +103,28 @@ export interface MorningOSSettings {
 
   // Notes
   showNotesIndicator: boolean;
-
-  // Read-only Markdown exports for Obsidian Home Screen widgets.
-  widgetNotes: WidgetNoteExport[];
+  dailyCapacityMinutes: number;
+  deepWorkCapacityMinutes: number;
+  projectStaleDays: number;
 }
 
 export const PROVIDER_DEFAULT_MODELS: Record<string, string> = {
   bedrock: "us.anthropic.claude-sonnet-4-6",
   openai: "gpt-4o",
+  deepseek: "deepseek-v4-flash",
   gemini: "gemini-2.0-flash",
   groq: "llama-3.3-70b-versatile",
 };
 
-function formatSnapshotDate(value: string): string {
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? "Unknown creation time" : parsed.toLocaleString();
-}
-
 export const DEFAULT_SETTINGS: MorningOSSettings = {
   briefsDir: "_generated/briefs",
+  taskBoardPath: "00-MOC/Morning OS Tasks.md",
   dailyNoteDir: "Essential/Daily",
+  syncTasksToDailyNote: true,
+  dailyTaskHeading: "Morning OS Tasks",
+  dailyPlanHeading: "Today's Plan",
+  workLogHeading: "Work Log",
+  shutdownHeading: "Shutdown",
   feedbackDir: "_generated/feedback",
   sectionWins: "Wins",
 
@@ -127,6 +132,7 @@ export const DEFAULT_SETTINGS: MorningOSSettings = {
   sourceEmotionalRules: "Essential/State of Mind/Emotional Rules.md",
   sourceGoals: "Essential/State of Mind/Long-term and Short-term.md",
   sourceTechnicalTasks: "Essential/Pending Tasks/Technical Tasks.md",
+  sourceHobbyTasks: "Essential/Pending Tasks/Hobby Tasks.md",
   sourceIdentity: "Essential/Identity-Anchor.md",
 
   sectionRedAlert: "Red alert",
@@ -139,6 +145,7 @@ export const DEFAULT_SETTINGS: MorningOSSettings = {
   modeTacticalRules: true,
   modeIdentityRules: false,
   modeGoals: true,
+  modeHobbyTasks: true,
   modeSuggestion: true,
   modeWins: false,
 
@@ -151,6 +158,7 @@ export const DEFAULT_SETTINGS: MorningOSSettings = {
   awsSecretAccessKey: "",
   awsRegion: "us-east-2",
   openaiApiKey: "",
+  deepseekApiKey: "",
   geminiApiKey: "",
   groqApiKey: "",
 
@@ -160,11 +168,13 @@ export const DEFAULT_SETTINGS: MorningOSSettings = {
   identityRulesCount: 3,
   goalsShortTermCount: 2,
   goalsLongTermCount: 1,
+  hobbyTasksCount: 3,
   suggestionCount: 3,
 
   showIdentity: false,
   showGoals: true,
   showRulesForToday: true,
+  showSuggestions: false,
 
   carryLookbackDays: 7,
 
@@ -205,13 +215,15 @@ export const DEFAULT_SETTINGS: MorningOSSettings = {
   requireSubtasksComplete: false,
 
   showNotesIndicator: true,
-
-  widgetNotes: [],
+  dailyCapacityMinutes: 480,
+  deepWorkCapacityMinutes: 240,
+  projectStaleDays: 10,
 };
 
 const PROVIDERS = {
   bedrock: "AWS Bedrock",
   openai: "OpenAI",
+  deepseek: "DeepSeek",
   gemini: "Google Gemini",
   groq: "Groq",
 };
@@ -219,21 +231,16 @@ const PROVIDERS = {
 export class MorningOSSettingTab extends PluginSettingTab {
   plugin: MorningOSPlugin;
   private dirtySections = new Set<string>();
-  private renderedBaseline: SharedSettings | null = null;
 
   constructor(app: App, plugin: MorningOSPlugin) {
     super(app, plugin);
     this.plugin = plugin;
   }
 
-  private async save(update: Partial<MorningOSSettings>, section?: string, baseline?: SharedSettings) {
-    await this.plugin.updateSettings({ ...update, settingsChangedSinceRun: true }, baseline ?? this.renderedBaseline ?? undefined);
-    if (this.renderedBaseline) {
-      const committed = this.plugin.sharedSettingsBaseline();
-      for (const key of SHARED_SETTINGS_KEYS) {
-        if (key in update) Object.assign(this.renderedBaseline, { [key]: cloneSettings(committed[key]) });
-      }
-    }
+  private async save(update: Partial<MorningOSSettings>, section?: string) {
+    Object.assign(this.plugin.settings, update);
+    this.plugin.settings.settingsChangedSinceRun = true;
+    await this.plugin.saveData(this.plugin.settings);
     if (section) {
       this.dirtySections.add(section);
       this.markSectionDirty(section);
@@ -275,15 +282,10 @@ export class MorningOSSettingTab extends PluginSettingTab {
   }
 
   private activeSettingsTab = "general";
-  private recoverySnapshots: StateSnapshot[] | null = null;
-  private recoverySnapshotError: string | null = null;
-  private restoringSnapshotPath: string | null = null;
-  private recoveryDisclosureOpen = false;
 
   private renderTabBar(containerEl: HTMLElement) {
     const tabs = [
       { key: "general", label: "General" },
-      { key: "calendar", label: "Calendar (experimental)" },
       { key: "advanced", label: "Advanced" },
     ];
     const bar = containerEl.createDiv({ cls: "mos-settings-tab-bar" });
@@ -304,7 +306,6 @@ export class MorningOSSettingTab extends PluginSettingTab {
   }
 
   display(): void {
-    this.renderedBaseline = this.plugin.sharedSettingsBaseline();
     const { containerEl } = this;
     containerEl.empty();
     this.renderTabBar(containerEl);
@@ -312,15 +313,12 @@ export class MorningOSSettingTab extends PluginSettingTab {
     const content = containerEl.createDiv({ cls: "mos-settings-content" });
     switch (this.activeSettingsTab) {
       case "general":
-        this.renderSharedSettingsSection(content);
         this.renderAISection(content);
         this.renderHomeSection(content);
         this.renderTaskBehaviorSection(content);
-        this.renderWidgetNotesSection(content);
         this.renderAreasSection(content);
         break;
       case "advanced":
-        this.renderDataSafetySection(content);
         this.renderAdvancedAreaFeaturesSection(content);
         this.renderAgentSection(content);
         this.renderAdvancedAISection(content);
@@ -330,386 +328,11 @@ export class MorningOSSettingTab extends PluginSettingTab {
         this.renderModesSection(content);
         this.renderAreaBriefingSourcesSection(content);
         break;
-      case "calendar":
-        this.renderCalendarSection(content);
-        break;
     }
-  }
-
-  private renderSharedSettingsSection(containerEl: HTMLElement): void {
-    const status = this.plugin.sharedSettingsStatus();
-    new Setting(containerEl)
-      .setName("Shared vault settings")
-      .setDesc(status.error || (status.adopted
-        ? "Areas, tabs and shared preferences use _generated/data/settings.json. Credentials and widget exports remain local."
-        : "Not initialized. Choose the device whose current configuration should become the baseline, then sync before editing on another device."))
-      .addButton(button => button.setButtonText(status.adopted ? "Shared settings active" : "Initialize from this device")
-        .setDisabled(status.adopted)
-        .onClick(async () => {
-          if (!window.confirm("Use this device's Areas, tabs and shared preferences as the initial shared configuration? A credential-free backup will be preserved. Sync other devices first; existing shared files are never intentionally overwritten.")) return;
-          button.setDisabled(true);
-          try { await this.plugin.initializeSharedSettings(); }
-          catch (error) { new Notice(`Morning OS: settings initialization failed — ${(error as Error).message}`); }
-          this.rerender();
-        }));
-  }
-
-  private renderCalendarSection(containerEl: HTMLElement): void {
-    this.sectionHeading(containerEl, "Experimental Google Calendar reminders");
-    containerEl.createEl("p", {
-      cls: "setting-item-description",
-      text: "Single-publisher test mode only. Morning OS remains task authority. Google Calendar clients deliver alerts; dismissing or snoozing an alert never changes an item. Use a disposable vault and the plugin-created dedicated test calendar.",
-    });
-    const stateEl = containerEl.createDiv({ cls: "mos-calendar-settings-state" });
-    stateEl.createEl("p", { cls: "setting-item-description", text: "Loading validated calendar state…" });
-    void this.populateCalendarSection(stateEl);
-  }
-
-  private async populateCalendarSection(containerEl: HTMLElement): Promise<void> {
-    try {
-      const state = await getStateStore(this.app).read();
-      if (!containerEl.isConnected && this.containerEl.isConnected) return;
-      containerEl.empty();
-      const integration = state.calendar;
-      const runtime = this.plugin.calendarStatus();
-      new Setting(containerEl)
-        .setName("Publisher status")
-        .setDesc(`${runtime.message} Shared state: ${integration?.calendar.status ?? "not initialized"}.`)
-        .addButton(button => button.setButtonText("Refresh").onClick(() => this.rerender()));
-
-      if (!integration) {
-        const defaultZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-        new Setting(containerEl)
-          .setName("Initialize experimental integration")
-          .setDesc(`Creates syncable protocol identity and selects this device as the only publisher. Default: 09:00 in ${defaultZone}. No login or provider write occurs.`)
-          .addButton(button => button.setButtonText("Initialize").onClick(async () => {
-            button.setDisabled(true);
-            try {
-              await this.plugin.initializeCalendar("09:00", defaultZone);
-              new Notice("Morning OS: experimental calendar integration initialized. Publishing remains disabled.");
-              this.rerender();
-            } catch (error) {
-              new Notice(`Morning OS: calendar setup failed — ${(error as Error).message}`);
-              button.setDisabled(false);
-            }
-          }));
-        return;
-      }
-
-      const isPublisher = integration.publisherDeviceId === this.plugin.calendarDevice();
-      new Setting(containerEl)
-        .setName("Single publishing device")
-        .setDesc(isPublisher ? "This device is selected. Other devices may edit synced items but cannot publish." : "Another device is selected. Publishing is blocked here until you explicitly transfer it.")
-        .addButton(button => button.setButtonText(isPublisher ? "Selected" : "Use this device").setDisabled(isPublisher).onClick(async () => {
-          if (!window.confirm("Transfer calendar publishing to this device? Publishing is disabled during the transfer; confirm the previous device is no longer publishing.")) return;
-          await this.plugin.useThisCalendarPublisher();
-          new Notice("Morning OS: this device is now the selected publisher; publishing remains disabled.");
-          this.rerender();
-        }));
-
-      let defaultTime = integration.defaultTime;
-      let timeZone = integration.timeZone;
-      new Setting(containerEl)
-        .setName("Default reminder time")
-        .setDesc("Date-only reminders use this committed wall time. Saving changes creates causal reschedules for enrolled items.")
-        .addText(text => {
-          text.inputEl.type = "time";
-          text.setValue(defaultTime).onChange(value => { defaultTime = value; });
-        });
-      new Setting(containerEl)
-        .setName("Default IANA time zone")
-        .setDesc("Schedules keep this zone while travelling. Spring-forward gaps are rejected; fall overlaps use the earlier instant.")
-        .addText(text => text.setValue(timeZone).onChange(value => { timeZone = value.trim(); }))
-        .addButton(button => button.setButtonText("Save policy").onClick(async () => {
-          try {
-            await this.plugin.setCalendarTimePolicy(defaultTime, timeZone);
-            new Notice("Morning OS: calendar time policy saved and enrolled reminders rescheduled.");
-            this.rerender();
-          } catch (error) { new Notice(`Morning OS: invalid calendar time policy — ${(error as Error).message}`); }
-        }));
-      try {
-        containerEl.createEl("p", { cls: "setting-item-description", text: `Preview: ${this.plugin.calendarSchedulePreview(todayStr(), defaultTime, timeZone)}` });
-      } catch (error) {
-        containerEl.createEl("p", { cls: "setting-item-description", text: `Preview unavailable: ${(error as Error).message}` });
-      }
-
-      this.renderCalendarAuthentication(containerEl);
-
-      const calendar = integration.calendar;
-      if (calendar.status === "unconfigured" || calendar.status === "conflict") {
-        new Setting(containerEl)
-          .setName("Create dedicated test calendar")
-          .setDesc("Creates exactly one plugin-owned Google calendar. An uncertain result is never retried blindly.")
-          .addButton(button => button.setButtonText("Create test calendar").onClick(async () => {
-            button.setDisabled(true);
-            try {
-              await this.plugin.createCalendarTestCalendar();
-              new Notice("Morning OS: dedicated test calendar created and confirmed.");
-              this.rerender();
-            } catch (error) {
-              new Notice(`Morning OS: calendar creation not confirmed — ${(error as Error).message}`);
-              this.rerender();
-            }
-          }));
-      }
-      if (calendar.status === "creating" || calendar.status === "unknown") {
-        let recoveryId = "";
-        new Setting(containerEl)
-          .setName("Recover uncertain calendar creation")
-          .setDesc("Paste the exact dedicated calendar ID from Google Calendar settings. Ownership is verified; no new calendar is created.")
-          .addText(text => text.setPlaceholder("Dedicated calendar ID").onChange(value => { recoveryId = value.trim(); }))
-          .addButton(button => button.setButtonText("Inspect and recover").onClick(async () => {
-            try {
-              await this.plugin.recoverCalendarTestCalendar(recoveryId);
-              new Notice("Morning OS: dedicated calendar ownership confirmed.");
-              this.rerender();
-            } catch (error) { new Notice(`Morning OS: recovery failed — ${(error as Error).message}`); }
-          }));
-      }
-
-      new Setting(containerEl)
-        .setName("Enroll existing reminders")
-        .setDesc("Creates durable intent for currently active date reminders. Acknowledged Today occurrences are not re-armed.")
-        .addButton(button => button.setButtonText("Preview and enroll").onClick(async () => {
-          const count = state.items.filter(item => !item.calendar_reminder && !item.is_deleted && item.date_remind &&
-            item.status_completion === "open" && (item.kind !== "note" || item.status_note === "active")).length;
-          if (!count) { new Notice("Morning OS: no existing reminders need enrollment."); return; }
-          if (!window.confirm(`Enroll ${count} existing reminder${count === 1 ? "" : "s"} using the committed default policy?`)) return;
-          const enrolled = await this.plugin.enrollCalendarReminders();
-          new Notice(`Morning OS: enrolled ${enrolled} reminder${enrolled === 1 ? "" : "s"}.`);
-          this.rerender();
-        }));
-
-      new Setting(containerEl)
-        .setName("Automatic publishing")
-        .setDesc(integration.enabled ? "Committed enrolled reminder changes reconcile automatically." : "Disabled. Existing Google alerts are not cancelled by disabling.")
-        .addToggle(toggle => toggle.setValue(integration.enabled).onChange(async value => {
-          try {
-            await this.plugin.setCalendarPublishing(value);
-            new Notice(`Morning OS: calendar publishing ${value ? "enabled" : "disabled"}.`);
-            this.rerender();
-          } catch (error) {
-            new Notice(`Morning OS: publishing was not changed — ${(error as Error).message}`);
-            this.rerender();
-          }
-        }));
-
-      new Setting(containerEl)
-        .setName("Cancel owned reminders")
-        .setDesc("Creates non-alerting fence transitions for every currently alerting Morning OS event. Fence placeholders remain in calendar history.")
-        .addButton(button => button.setWarning().setButtonText("Cancel owned reminders").onClick(async () => {
-          if (!window.confirm("Cancel every enrolled Morning OS reminder on the dedicated calendar? Keep publishing enabled until status confirms the fences.")) return;
-          const count = await this.plugin.cancelCalendarReminders();
-          new Notice(`Morning OS: queued ${count} cancellation${count === 1 ? "" : "s"}.`);
-          this.rerender();
-        }));
-      new Setting(containerEl)
-        .setName("Export device acceptance checklist")
-        .setDesc("Writes a sanitized checklist under _generated/exports. It contains no credentials, authorization URLs, calendar IDs, or provider bodies.")
-        .addButton(button => button.setButtonText("Export checklist").onClick(async () => {
-          try {
-            const path = await this.plugin.exportCalendarAcceptanceChecklist();
-            new Notice(`Morning OS: calendar acceptance checklist saved to ${path}`);
-          } catch (error) { new Notice(`Morning OS: could not export checklist — ${(error as Error).message}`); }
-        }));
-      new Setting(containerEl)
-        .setName("Disconnect this device")
-        .setDesc("Disables publishing and clears the device-local relay credential. It does not cancel existing alerts or delete fence evidence.")
-        .addButton(button => button.setWarning().setButtonText("Disconnect").onClick(async () => {
-          if (!window.confirm("Disconnect without cancelling provider alerts? Use Cancel owned reminders first if alerts must be removed.")) return;
-          await this.plugin.disconnectCalendar();
-          new Notice("Morning OS: calendar disconnected on this device.");
-          this.rerender();
-        }));
-    } catch (error) {
-      containerEl.empty();
-      containerEl.createEl("p", { cls: "setting-item-description", text: `Calendar state is invalid; all provider writes are suspended: ${(error as Error).message}` });
-    }
-  }
-
-  private renderCalendarAuthentication(containerEl: HTMLElement): void {
-    let relayOrigin = "";
-    let relayKey = "";
-    new Setting(containerEl)
-      .setName("Prepare Google Calendar login")
-      .setDesc("Enter the maintainer-operated HTTPS relay origin and its access key for this login session. They are saved only in SecretStorage after successful consent; never in plugin settings or vault state.")
-      .addText(text => {
-        text.inputEl.type = "url";
-        text.setPlaceholder("https://calendar-auth.example.com").onChange(value => { relayOrigin = value.trim(); });
-      })
-      .addText(text => {
-        text.inputEl.type = "password";
-        text.inputEl.autocomplete = "off";
-        text.onChange(value => { relayKey = value; });
-      })
-      .addButton(button => button.setButtonText("Prepare Google login").onClick(async () => {
-        try {
-          await this.plugin.startCalendarLogin(relayOrigin, relayKey);
-          relayKey = "";
-          this.rerender();
-        } catch (error) { new Notice(`Morning OS: login could not start — ${(error as Error).message}`); }
-      }));
-    if (this.plugin.calendarLoginUrl) {
-      const link = containerEl.createEl("a", {
-        text: "Open Google consent in your external browser",
-        href: this.plugin.calendarLoginUrl,
-        attr: { target: "_blank", rel: "noopener noreferrer" },
-      });
-      link.addClass("setting-item-description");
-    }
-    new Setting(containerEl)
-      .setName("Restore saved login")
-      .setDesc("Refresh the device-local saved credential without opening the browser.")
-      .addButton(button => button.setButtonText("Restore").onClick(async () => {
-        try {
-          await this.plugin.restoreCalendarLogin();
-          new Notice("Morning OS: saved Google Calendar login restored.");
-          this.rerender();
-        } catch (error) { new Notice(`Morning OS: saved login could not be restored — ${(error as Error).message}`); }
-      }));
-  }
-
-  private renderDataSafetySection(containerEl: HTMLElement): void {
-    this.sectionHeading(containerEl, "Data safety & recovery");
-    const store = getStateStore(this.app);
-    new Setting(containerEl)
-      .setName("Back up now")
-      .setDesc("Create and verify a snapshot of Morning OS item state before making larger changes.")
-      .addButton((button) => button.setButtonText("Back up").onClick(async () => {
-        button.setDisabled(true);
-        try {
-          const path = await store.backupNow();
-          new Notice(`Morning OS: verified backup saved to ${path}`);
-          await this.reloadRecoverySnapshots();
-        } catch (error) {
-          new Notice(`Morning OS: backup failed — ${(error as Error).message}`);
-        } finally {
-          button.setDisabled(false);
-        }
-      }));
-    new Setting(containerEl)
-      .setName("Export item state")
-      .setDesc("Write a verified JSON export to _generated/exports. Exports contain item data, not provider credentials.")
-      .addButton((button) => button.setButtonText("Export JSON").onClick(async () => {
-        button.setDisabled(true);
-        try {
-          const path = await store.exportState();
-          new Notice(`Morning OS: item export saved to ${path}`);
-        } catch (error) {
-          new Notice(`Morning OS: export failed — ${(error as Error).message}`);
-        } finally {
-          button.setDisabled(false);
-        }
-      }));
-
-    this.renderRecoverySnapshotList(containerEl, store);
-  }
-
-  private renderRecoverySnapshotList(containerEl: HTMLElement, store: ReturnType<typeof getStateStore>): void {
-    containerEl.createEl("p", {
-      cls: "setting-item-description mos-recovery-coverage-note",
-      text: "Backups cover Morning OS item state only—not your whole vault or plugin settings—and are stored inside this vault.",
-    });
-    if (this.recoverySnapshots === null) {
-      containerEl.createEl("p", { cls: "setting-item-description mos-recovery-list-state", text: "Loading backups…" });
-      void this.reloadRecoverySnapshots();
-      return;
-    }
-    const disclosure = containerEl.createEl("details", { cls: "mos-recovery-disclosure" });
-    disclosure.open = this.recoveryDisclosureOpen;
-    disclosure.addEventListener("toggle", () => { this.recoveryDisclosureOpen = disclosure.open; });
-    disclosure.createEl("summary", { text: `Available backups (${this.recoverySnapshots.length})` });
-    const content = disclosure.createDiv({ cls: "mos-recovery-disclosure-content" });
-    if (this.recoverySnapshotError) {
-      content.createEl("p", { cls: "setting-item-description mos-recovery-list-state", text: `Could not load backups: ${this.recoverySnapshotError}` });
-      return;
-    }
-    if (!this.recoverySnapshots.length) {
-      content.createEl("p", { cls: "setting-item-description mos-recovery-list-state", text: "No Morning OS backups are available yet. Create one before making a larger change." });
-      return;
-    }
-    const validCount = this.recoverySnapshots.filter(snapshot => snapshot.valid).length;
-    content.createEl("p", { cls: "setting-item-description", text: `${validCount} verified backup${validCount === 1 ? "" : "s"} available. Automatic backups retain the latest 20; manual, migration, pre-restore, invalid, and damaged-state recovery copies are protected and can accumulate.` });
-    const list = content.createDiv({ cls: "mos-recovery-list", attr: { role: "list", "aria-label": "Morning OS backups" } });
-    for (const snapshot of this.recoverySnapshots) {
-      const row = list.createDiv({ cls: "mos-recovery-row", attr: { role: "listitem" } });
-      const details = row.createDiv({ cls: "mos-recovery-row-details" });
-      const filename = snapshot.path.split("/").pop() ?? snapshot.path;
-      const date = formatSnapshotDate(snapshot.createdAt);
-      details.createEl("div", { cls: "mos-recovery-row-title", text: date, attr: { title: snapshot.path } });
-      details.createEl("div", { cls: "mos-recovery-row-meta", text: `${snapshot.reason} · ${snapshot.itemCount} item${snapshot.itemCount === 1 ? "" : "s"} · ${filename}`, attr: { title: snapshot.path } });
-      const status = snapshot.status === "legacy" ? "Legacy (upgrades on restore)" : snapshot.status === "valid" ? "Valid" : "Invalid";
-      details.createEl("div", { cls: `mos-recovery-status is-${snapshot.status}`, text: status });
-      if (!snapshot.valid) details.createEl("div", { cls: "mos-recovery-row-error", text: snapshot.error ?? "This backup could not be validated and was preserved for investigation." });
-      const supported = snapshot.valid && (snapshot.status === "valid" || snapshot.status === "legacy");
-      const button = row.createEl("button", {
-        cls: "mod-cta mos-recovery-restore-button",
-        text: "Restore",
-        attr: { "aria-label": `Restore ${date} ${snapshot.reason} backup` },
-      });
-      button.disabled = !supported || this.restoringSnapshotPath !== null;
-      if (!supported) button.setAttribute("title", snapshot.error ?? "This backup is not supported for restore.");
-      button.addEventListener("click", () => { void this.restoreFromSnapshot(store, snapshot, button); });
-    }
-  }
-
-  private async restoreFromSnapshot(store: ReturnType<typeof getStateStore>, snapshot: StateSnapshot, button: HTMLButtonElement): Promise<void> {
-    if (hasActiveEditingSession()) {
-      new Notice("Morning OS: save or discard the active item draft before restoring a backup.");
-      return;
-    }
-    const date = formatSnapshotDate(snapshot.createdAt);
-    const legacyNote = snapshot.status === "legacy" ? " This legacy backup will be upgraded to the current item-state format." : "";
-    if (!window.confirm(`Restore the ${snapshot.reason} backup from ${date} (${snapshot.itemCount} item${snapshot.itemCount === 1 ? "" : "s"})? This replaces the whole Morning OS item state; it does not merge changes.${legacyNote}`)) return;
-    this.restoringSnapshotPath = snapshot.path;
-    button.disabled = true;
-    try {
-      const result = await store.restoreSnapshot(snapshot.path);
-      const recovery = result.recoveryPath ? ` Damaged prior bytes were preserved at ${result.recoveryPath}.` : "";
-      new Notice(`Morning OS: backup restored. Refreshing open views.${recovery}`);
-      await this.plugin.refreshView();
-    } catch (error) {
-      new Notice(`Morning OS: restore failed — ${(error as Error).message}`);
-    } finally {
-      this.restoringSnapshotPath = null;
-      await this.reloadRecoverySnapshots();
-    }
-  }
-
-  private async reloadRecoverySnapshots(): Promise<void> {
-    try {
-      this.recoverySnapshots = await getStateStore(this.app).listSnapshots();
-      this.recoverySnapshotError = null;
-    } catch (error) {
-      console.error("Morning OS could not list recovery snapshots:", error);
-      this.recoverySnapshots = [];
-      this.recoverySnapshotError = (error as Error).message;
-    }
-    this.display();
   }
 
   private renderAgentSection(containerEl: HTMLElement) {
     this.sectionHeading(containerEl, "Briefing agent");
-
-    new Setting(containerEl)
-      .setName("Regenerate briefing")
-      .setDesc("Rebuild the briefing now. Morning OS uses AI only when your enabled briefing sections require it.")
-      .addButton((btn) =>
-        btn
-          .setButtonText("Regenerate")
-          .onClick(async () => {
-            btn.setButtonText("Regenerating…");
-            btn.setDisabled(true);
-            try {
-              await this.plugin.regenerateBriefing();
-              btn.setButtonText("Done ✓");
-              this.clearDirty();
-            } finally {
-              window.setTimeout(() => { btn.setButtonText("Regenerate"); btn.setDisabled(false); }, 3000);
-            }
-          })
-      );
-    return;
 
     new Setting(containerEl)
       .setName("Carry lookback days")
@@ -744,7 +367,7 @@ export class MorningOSSettingTab extends PluginSettingTab {
             btn.setButtonText("Running…");
             btn.setDisabled(true);
             try {
-              await this.plugin.regenerateBriefing();
+              await this.plugin.triggerAgent();
               btn.setButtonText("Done ✓");
               this.clearDirty();
             } catch {
@@ -765,7 +388,7 @@ export class MorningOSSettingTab extends PluginSettingTab {
             btn.setButtonText("Refreshing…");
             btn.setDisabled(true);
             try {
-              await this.plugin.regenerateBriefing();
+              await this.plugin.triggerRefresh();
               btn.setButtonText("Done ✓");
             } catch {
               btn.setButtonText("Failed ✗");
@@ -849,6 +472,16 @@ export class MorningOSSettingTab extends PluginSettingTab {
         });
     }
 
+    if (p === "deepseek") {
+      new Setting(containerEl)
+        .setName("DeepSeek API Key")
+        .addText((text) => {
+          text.inputEl.type = "password";
+          text.setValue(this.plugin.settings.deepseekApiKey)
+            .onChange(async (value) => { await this.save({ deepseekApiKey: value }, "AI provider"); });
+        });
+    }
+
     if (p === "gemini") {
       new Setting(containerEl)
         .setName("Gemini API Key")
@@ -915,16 +548,25 @@ export class MorningOSSettingTab extends PluginSettingTab {
     });
 
     new Setting(containerEl)
+      .setName("Task board path")
+      .addText((text) => text.setValue(this.plugin.settings.taskBoardPath).onChange(async (value) => {
+        await this.save({ taskBoardPath: value || "00-MOC/Morning OS Tasks.md" }, "Vault paths");
+      }));
+
+    new Setting(containerEl)
+      .setName("Daily notes folder")
+      .addText((text) => text.setValue(this.plugin.settings.dailyNoteDir).onChange(async (value) => {
+        await this.save({ dailyNoteDir: value }, "Vault paths");
+      }));
+
+    new Setting(containerEl)
       .setName("Briefs output folder")
       .setDesc("Where the agent writes daily brief JSON files.")
       .addText((text) =>
         text
           .setPlaceholder("_generated/briefs")
           .setValue(this.plugin.settings.briefsDir)
-          .onChange(async (value) => {
-            await this.save({ briefsDir: value }, "Vault paths");
-            this.plugin.queueWidgetRefresh();
-          })
+          .onChange(async (value) => { await this.save({ briefsDir: value }, "Vault paths"); })
       );
 
     new Setting(containerEl)
@@ -943,10 +585,7 @@ export class MorningOSSettingTab extends PluginSettingTab {
       .addText((text) =>
         text
           .setValue(this.plugin.settings.sourceIdentity)
-          .onChange(async (value) => {
-            await this.save({ sourceIdentity: value }, "Vault paths");
-            this.plugin.queueWidgetRefresh();
-          })
+          .onChange(async (value) => { await this.save({ sourceIdentity: value }, "Vault paths"); })
       );
 
     new Setting(containerEl)
@@ -994,96 +633,17 @@ export class MorningOSSettingTab extends PluginSettingTab {
     count("Identity rules", "identityRulesCount");
     count("Short-term goals (shown in bar)", "goalsShortTermCount");
     count("Long-term goals (shown in bar)", "goalsLongTermCount");
+    count("Hobby tasks", "hobbyTasksCount");
+    count("Daily capacity (minutes)", "dailyCapacityMinutes");
+    count("Deep-work capacity (minutes)", "deepWorkCapacityMinutes");
+    count("Project stale threshold (days)", "projectStaleDays");
     count("Suggestions", "suggestionCount");
-  }
-
-  private renderWidgetNotesSection(containerEl: HTMLElement): void {
-    this.sectionHeading(containerEl, "Widget notes");
-    containerEl.createEl("p", {
-      cls: "setting-item-description",
-      text: "Export read-only Markdown notes for Obsidian's Home Screen View Note widget. Morning OS replaces only notes it owns.",
-    });
-    const sources: Record<WidgetSource, string> = {
-      identity: "Identity",
-      "goals-short": "Short-term goals",
-      "goals-long": "Long-term goals",
-      "today-tasks": "Today's tasks",
-      "inbox-tasks": "Inbox tasks",
-      "all-tasks": "All tasks",
-    };
-    const update = async (id: string, patch: Partial<WidgetNoteExport>): Promise<void> => {
-      this.plugin.settings.widgetNotes = this.plugin.settings.widgetNotes.map(widgetExport =>
-        widgetExport.id === id ? { ...widgetExport, ...patch } : widgetExport
-      );
-      await this.plugin.saveWidgetNotes();
-    };
-    for (const widgetExport of this.plugin.settings.widgetNotes) {
-      new Setting(containerEl)
-        .setName(widgetExport.destination || "Widget note")
-        .setDesc("The generated note is replaced when Morning OS refreshes it.")
-        .addToggle(toggle => toggle.setValue(widgetExport.enabled).onChange(async enabled => {
-          await update(widgetExport.id, { enabled });
-          this.rerender();
-        }))
-        .addButton(button => button.setButtonText("Remove").onClick(async () => {
-          this.plugin.settings.widgetNotes = this.plugin.settings.widgetNotes.filter(item => item.id !== widgetExport.id);
-          await this.plugin.saveWidgetNotes();
-          this.rerender();
-        }));
-      new Setting(containerEl)
-        .setName("Source")
-        .addDropdown(dropdown => dropdown.addOptions(sources).setValue(widgetExport.source).onChange(async source => {
-          await update(widgetExport.id, { source: source as WidgetSource });
-          this.rerender();
-        }));
-      new Setting(containerEl)
-        .setName("Destination")
-        .setDesc("Vault-relative Markdown path. Default folder: _generated/widgets/.")
-        .addText(text => text.setValue(widgetExport.destination).onChange(async destination => {
-          await update(widgetExport.id, { destination });
-          this.rerender();
-        }));
-      new Setting(containerEl)
-        .setName("Item limit")
-        .addText(text => {
-          text.inputEl.type = "number";
-          text.inputEl.min = "1";
-          text.inputEl.addClass("mos-number-input-sm");
-          text.setValue(String(widgetExport.limit)).onChange(async value => {
-            const limit = Number.parseInt(value, 10);
-            if (Number.isInteger(limit) && limit > 0) await update(widgetExport.id, { limit });
-          });
-        });
-    }
-    new Setting(containerEl)
-      .setName("Add widget note")
-      .setDesc("New exports are disabled until you enable them.")
-      .addButton(button => button.setButtonText("Add").onClick(async () => {
-        const id = `widget-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-        this.plugin.settings.widgetNotes = [...this.plugin.settings.widgetNotes, {
-          id,
-          enabled: false,
-          source: "today-tasks",
-          destination: `_generated/widgets/${id}.md`,
-          limit: 10,
-        }];
-        await this.plugin.saveWidgetNotes();
-        this.rerender();
-      }));
-    if (this.plugin.widgetLastSuccess || this.plugin.widgetLastError) {
-      containerEl.createEl("p", {
-        cls: "setting-item-description",
-        text: this.plugin.widgetLastError
-          ? `Last widget refresh failed: ${this.plugin.widgetLastError}`
-          : `Last widget refresh: ${this.plugin.widgetLastSuccess}`,
-      });
-    }
   }
 
   private renderHomeSection(containerEl: HTMLElement) {
     this.sectionHeading(containerEl, "Home dashboard");
 
-    const toggle = (name: string, desc: string, key: "showIdentity" | "showGoals" | "showRulesForToday") => {
+    const toggle = (name: string, desc: string, key: "showIdentity" | "showGoals" | "showRulesForToday" | "showSuggestions") => {
       new Setting(containerEl)
         .setName(name)
         .setDesc(desc)
@@ -1091,7 +651,8 @@ export class MorningOSSettingTab extends PluginSettingTab {
           t
             .setValue(this.plugin.settings[key])
             .onChange(async (value) => {
-              await this.save({ [key]: value });
+              this.plugin.settings[key] = value;
+              await this.plugin.saveData(this.plugin.settings);
               await this.plugin.refreshView();
             })
         );
@@ -1100,10 +661,34 @@ export class MorningOSSettingTab extends PluginSettingTab {
     toggle("Show identity", "Show your Identity Anchor at the top of Home.", "showIdentity");
     toggle("Show goals", "Show short- and long-term goals near the top of Home.", "showGoals");
     toggle("Show rules for today", "Show the briefing agent's task-relevant rules beside today's tasks.", "showRulesForToday");
+    toggle("Show suggestions", "Show AI-generated suggestions on Home. Turn this off for a cleaner execution view.", "showSuggestions");
   }
 
   private renderTaskBehaviorSection(containerEl: HTMLElement) {
     this.sectionHeading(containerEl, "Task behavior");
+
+    new Setting(containerEl)
+      .setName("Sync tasks to today’s Daily Note")
+      .setDesc("Updates a managed section only when today's Daily Note already exists.")
+      .addToggle(toggle => toggle.setValue(this.plugin.settings.syncTasksToDailyNote).onChange(async value => {
+        await this.save({ syncTasksToDailyNote: value }, "Task behavior");
+      }));
+
+    new Setting(containerEl)
+      .setName("Daily Note task heading")
+      .addText(text => text.setValue(this.plugin.settings.dailyTaskHeading).onChange(async value => {
+        await this.save({ dailyTaskHeading: value || "Morning OS Tasks" }, "Task behavior");
+      }));
+
+    for (const [name, key, fallback] of [
+      ["Morning plan heading", "dailyPlanHeading", "Today's Plan"],
+      ["Work log heading", "workLogHeading", "Work Log"],
+      ["Shutdown heading", "shutdownHeading", "Shutdown"],
+    ] as const) {
+      new Setting(containerEl).setName(name).addText(text => text.setValue(this.plugin.settings[key]).onChange(async value => {
+        await this.save({ [key]: value || fallback }, "Task behavior");
+      }));
+    }
 
     new Setting(containerEl)
       .setName("Require subtasks complete before parent")
@@ -1112,7 +697,8 @@ export class MorningOSSettingTab extends PluginSettingTab {
         toggle
           .setValue(this.plugin.settings.requireSubtasksComplete)
           .onChange(async (value) => {
-            await this.save({ requireSubtasksComplete: value });
+            this.plugin.settings.requireSubtasksComplete = value;
+            await this.plugin.saveData(this.plugin.settings);
             await this.plugin.refreshView();
           })
       );
@@ -1124,7 +710,8 @@ export class MorningOSSettingTab extends PluginSettingTab {
         toggle
           .setValue(this.plugin.settings.showNotesIndicator)
           .onChange(async (value) => {
-            await this.save({ showNotesIndicator: value });
+            this.plugin.settings.showNotesIndicator = value;
+            await this.plugin.saveData(this.plugin.settings);
             await this.plugin.refreshView();
           })
       );
@@ -1140,8 +727,9 @@ export class MorningOSSettingTab extends PluginSettingTab {
         toggle
           .setValue(this.plugin.settings.advancedAreaFeatures)
           .onChange(async (value) => {
-            await this.save({ advancedAreaFeatures: value });
-            await this.plugin.refreshView(true);
+            this.plugin.settings.advancedAreaFeatures = value;
+            await this.plugin.saveData(this.plugin.settings);
+            await this.plugin.refreshView();
           })
       );
   }
@@ -1167,6 +755,7 @@ export class MorningOSSettingTab extends PluginSettingTab {
     toggle("Tactical rules", "AI picks the most relevant rules for today's tasks.", "modeTacticalRules");
     toggle("Identity rules", "AI picks identity affirmations resonant with today.", "modeIdentityRules");
     toggle("Goals", "AI selects and orders goals based on current tasks.", "modeGoals");
+    toggle("Hobby tasks", "AI picks hobby tasks from your file — no generation.", "modeHobbyTasks");
     toggle("Suggestions", "AI generates new suggestion text (the only field where it writes new content).", "modeSuggestion");
     toggle("Wins", "AI orders recent wins. Off reads the Wins log directly.", "modeWins");
   }
@@ -1178,9 +767,7 @@ export class MorningOSSettingTab extends PluginSettingTab {
       text: "Choose which Areas may contribute Markdown sections to AI-generated briefings.",
     });
 
-    const areas = cloneSettings(this.plugin.settings.areas);
-    let baseline = this.plugin.sharedSettingsBaseline();
-    for (const area of areas) {
+    for (const area of this.plugin.settings.areas) {
       new Setting(containerEl)
         .setName(`${area.icon} ${area.label}`)
         .addToggle((toggle) =>
@@ -1188,8 +775,7 @@ export class MorningOSSettingTab extends PluginSettingTab {
             .setValue(area.feedToLLM ?? true)
             .onChange(async (value) => {
               area.feedToLLM = value;
-              await this.save({ areas }, "Area briefing sources", baseline);
-              baseline = this.plugin.sharedSettingsBaseline();
+              await this.save({ areas: [...this.plugin.settings.areas] }, "Area briefing sources");
             })
         );
     }
@@ -1200,18 +786,15 @@ export class MorningOSSettingTab extends PluginSettingTab {
 
   private renderAreasSection(containerEl: HTMLElement) {
     this.sectionHeading(containerEl, "Areas");
-    const areas = cloneSettings(this.plugin.settings.areas);
-    let baseline = this.plugin.sharedSettingsBaseline();
+    const areas = this.plugin.settings.areas;
     const saveDataOnly = async () => {
-      try {
-        await this.save({ areas }, undefined, baseline);
-        baseline = this.plugin.sharedSettingsBaseline();
-      } catch (error) {
-        this.rerender();
-        throw error;
-      }
+      await this.plugin.saveData(this.plugin.settings);
+      this.plugin.refreshView();
     };
-    const saveAndSync = saveDataOnly;
+    const saveAndSync = async () => {
+      await this.plugin.saveData(this.plugin.settings);
+      await this.plugin.reregisterAreaViews();
+    };
 
     if (this.selectedAreaKey && !areas.find(p => p.key === this.selectedAreaKey)) {
       this.selectedAreaKey = null; this.selectedTabKey = null;
@@ -1223,7 +806,7 @@ export class MorningOSSettingTab extends PluginSettingTab {
 
     // ── LEFT: area list ──────────────────────────────────────────────────
 
-    const renderNavRow = (p: typeof areas[0]) => {
+    const renderNavRow = (p: typeof areas[0], pi: number) => {
       const row = left.createDiv({ cls: "mos-areas-nav-row" });
       const item = row.createDiv({
         cls: "mos-areas-nav-item" + (this.selectedAreaKey === p.key ? " is-active" : ""),
@@ -1238,18 +821,34 @@ export class MorningOSSettingTab extends PluginSettingTab {
         right.empty();
         renderRight();
       });
+
+      const reorder = row.createDiv({ cls: "mos-areas-reorder" });
+      if (pi > 0) {
+        reorder.createEl("button", { cls: "mos-btn mos-btn-icon", text: "↑" })
+          .addEventListener("click", (e) => {
+            void (async () => {
+              e.stopPropagation();
+              [areas[pi - 1], areas[pi]] = [areas[pi], areas[pi - 1]];
+              await saveDataOnly();
+              left.empty(); renderLeft();
+            })();
+          });
+      }
+      if (pi < areas.length - 1) {
+        reorder.createEl("button", { cls: "mos-btn mos-btn-icon", text: "↓" })
+          .addEventListener("click", (e) => {
+            void (async () => {
+              e.stopPropagation();
+              [areas[pi], areas[pi + 1]] = [areas[pi + 1], areas[pi]];
+              await saveDataOnly();
+              left.empty(); renderLeft();
+            })();
+          });
+      }
     };
 
     const renderLeft = () => {
-      areas.forEach(p => renderNavRow(p));
-      attachReorder(areas.map((area, index) => ({ key: area.key, label: area.label,
-        el: left.children[index] as HTMLElement })), "vertical", async (source, target, before) => {
-        try {
-          if (!moveEntry(areas, source, target, before)) return;
-          await saveDataOnly();
-          left.empty(); renderLeft();
-        } catch { /* The settings writer reports errors and restores the saved layout. */ }
-      });
+      areas.forEach((p, pi) => renderNavRow(p, pi));
 
       left.createDiv({ cls: "mos-areas-nav-divider" });
       const addRow = left.createDiv({ cls: "mos-areas-add-row" });
@@ -1284,7 +883,7 @@ export class MorningOSSettingTab extends PluginSettingTab {
         t.onChange(async v => {
           selectedTab.label = v;
           // Update pill label in-place
-          const pill = right.querySelector(`.mos-areas-tab-btn[data-tabkey="${selectedTab.key}"] .mos-areas-tab-label`);
+          const pill = right.querySelector(`.mos-areas-tab-btn[data-tabkey="${selectedTab.key}"] span`);
           if (pill) pill.textContent = v;
           await saveAndSync();
         });
@@ -1304,60 +903,25 @@ export class MorningOSSettingTab extends PluginSettingTab {
 
       tabDetailEl.createDiv({ cls: "mos-areas-sub-heading", text: "Fields" });
 
-      const fieldDrafts = new Map<string, { label: string; type: FieldDef["type"]; options: string }>();
-      const fieldList = tabDetailEl.createDiv({ cls: "mos-field-list" });
       const renderFieldRows = () => {
-        fieldList.empty();
-        if (!selectedTab.fields.length) fieldList.createEl("p", { cls: "mos-areas-empty", text: "No fields yet." });
+        const existing = tabDetailEl.querySelectorAll(".mos-field-row");
+        existing.forEach(el => el.remove());
         selectedTab.fields.forEach((field, fi) => {
-          const fRow = fieldList.createDiv({ cls: "mos-field-row" });
-          const controls = fRow.createDiv({ cls: "mos-field-controls" });
-          const nameLabel = controls.createEl("label", { cls: "mos-field-control" });
-          nameLabel.createSpan({ text: "Name", cls: "mos-field-control-label" });
-          const labelInput = nameLabel.createEl("input", { type: "text", cls: "morning-os-wins-input",
-            attr: { "aria-label": "Field name" } });
-          const draft = fieldDrafts.get(field.key) ?? { label: field.label, type: field.type, options: (field.options ?? []).join(", ") };
-          labelInput.value = draft.label;
-          labelInput.addEventListener("input", () => {
-            draft.label = labelInput.value;
-            fieldDrafts.set(field.key, draft);
-          });
-          const typeLabel = controls.createEl("label", { cls: "mos-field-control" });
-          typeLabel.createSpan({ text: "Type", cls: "mos-field-control-label" });
-          const typeInput = typeLabel.createEl("select", { cls: "mos-btn mos-btn-select", attr: { "aria-label": "Field type" } });
-          for (const type of ["text", "url", "dropdown", "date"]) typeInput.createEl("option", { value: type, text: type });
-          typeInput.value = draft.type;
-          const optionsWrap = controls.createEl("label", { cls: "mos-field-control mos-field-options-inline" });
-          optionsWrap.createSpan({ text: "Options (comma-separated)", cls: "mos-field-control-label" });
-          const optionsInput = optionsWrap.createEl("input", { type: "text", cls: "morning-os-wins-input",
-            placeholder: "Options (comma-separated)", attr: { "aria-label": "Dropdown options" } });
-          optionsInput.value = draft.options;
-          optionsWrap.hidden = draft.type !== "dropdown";
-          optionsInput.addEventListener("input", () => {
-            draft.options = optionsInput.value;
-            fieldDrafts.set(field.key, draft);
-          });
-          const actions = fRow.createDiv({ cls: "mos-field-actions" });
-          actions.createEl("button", { cls: "mos-btn mos-btn-primary", text: "Save", attr: { "aria-label": `Save field ${field.label}` } })
-            .addEventListener("click", () => {
+          const fRow = tabDetailEl.createDiv({ cls: "mos-area-builder-row mos-field-row" });
+          fRow.createSpan({ cls: "mos-area-builder-label", text: field.label });
+          fRow.createSpan({ cls: "mos-meta-chip", text: field.type });
+          if (field.type === "dropdown") {
+            const optStr = (field.options ?? []).join(", ");
+            const optInput = fRow.createEl("input", { type: "text", cls: "morning-os-wins-input mos-field-options-inline", placeholder: "Options (comma-separated)" });
+            optInput.value = optStr;
+            optInput.addEventListener("change", () => {
               void (async () => {
-                const label = labelInput.value.trim();
-                if (!label) { new Notice("Morning OS: field name cannot be empty."); return; }
-                field.label = label;
-                field.type = typeInput.value as FieldDef["type"];
-                // Preserve inactive dropdown options so switching back does not discard them.
-                if (field.type === "dropdown" || field.options) field.options = optionsInput.value.split(",").map(value => value.trim()).filter(Boolean);
-                try { await saveDataOnly(); fieldDrafts.delete(field.key); renderFieldRows(); } catch { /* Already reported. */ }
+                field.options = optInput.value.split(",").map(s => s.trim()).filter(Boolean);
+                await saveDataOnly();
               })();
             });
-          actions.createEl("button", { cls: "mos-btn", text: "Cancel" })
-            .addEventListener("click", () => { fieldDrafts.delete(field.key); renderFieldRows(); });
-          typeInput.addEventListener("change", () => {
-            draft.type = typeInput.value as FieldDef["type"];
-            fieldDrafts.set(field.key, draft);
-            optionsWrap.hidden = draft.type !== "dropdown";
-          });
-          actions.createEl("button", { cls: "mos-btn mos-field-delete", text: "Delete", attr: { "aria-label": `Delete field ${field.label}` } })
+          }
+          fRow.createEl("button", { cls: "mos-btn mos-btn-icon", text: "✕" })
             .addEventListener("click", () => {
               void (async () => {
                 selectedTab.fields.splice(fi, 1);
@@ -1366,23 +930,18 @@ export class MorningOSSettingTab extends PluginSettingTab {
               })();
             });
         });
-        attachReorder(selectedTab.fields.map((field, index) => ({ key: field.key, label: field.label,
-          el: fieldList.children[index] as HTMLElement })), "vertical", async (source, target, before) => {
-          try {
-            if (!moveEntry(selectedTab.fields, source, target, before)) return;
-            await saveDataOnly(); renderFieldRows();
-          } catch { /* Already reported. */ }
-        });
       };
       renderFieldRows();
 
-      const addField = tabDetailEl.createDiv({ cls: "mos-field-add" });
-      addField.createDiv({ cls: "mos-field-control-label", text: "New field" });
-      const addFRow = addField.createDiv({ cls: "mos-area-builder-row" });
+      if (selectedTab.fields.length === 0) {
+        tabDetailEl.createEl("p", { cls: "mos-areas-empty", text: "No fields yet." });
+      }
+
+      const addFRow = tabDetailEl.createDiv({ cls: "mos-area-builder-row" });
       const fLabelIn = addFRow.createEl("input", { type: "text", cls: "morning-os-wins-input", placeholder: "Field label" });
       const fTypeSelect = addFRow.createEl("select", { cls: "mos-btn mos-btn-select" });
       for (const ft of ["text", "url", "dropdown", "date"]) fTypeSelect.createEl("option", { value: ft, text: ft });
-      const fOptionsWrap = addField.createDiv({ cls: "mos-area-builder-row mos-field-options-row" });
+      const fOptionsWrap = tabDetailEl.createDiv({ cls: "mos-area-builder-row mos-field-options-row" });
       fOptionsWrap.addClass("mos-field-options-hidden");
       fOptionsWrap.createEl("label", { cls: "mos-edit-label", text: "Options (comma-separated)" });
       const fOptionsIn = fOptionsWrap.createEl("input", { type: "text", cls: "morning-os-wins-input", placeholder: "Option 1, Option 2, Option 3" });
@@ -1393,10 +952,6 @@ export class MorningOSSettingTab extends PluginSettingTab {
         const l = fLabelIn.value.trim();
         if (!l) return;
         const k = l.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
-        if (!k || ["__proto__", "constructor", "prototype"].includes(k) || selectedTab.fields.some(field => field.key === k)) {
-          new Notice("Morning OS: choose a unique field name containing letters or numbers.");
-          return;
-        }
         const fieldType = fTypeSelect.value as FieldDef["type"];
         const field: FieldDef = { key: k, label: l, type: fieldType };
         if (fieldType === "dropdown") {
@@ -1491,7 +1046,7 @@ export class MorningOSSettingTab extends PluginSettingTab {
             cls: "mos-areas-tab-btn" + (this.selectedTabKey === tab.key ? " is-active" : ""),
             attr: { "data-tabkey": tab.key },
           });
-          tabBtn.createSpan({ cls: "mos-areas-tab-label", text: tab.label });
+          tabBtn.createSpan({ text: tab.label });
           tabBtn.createEl("button", { cls: "mos-btn mos-btn-icon", text: "✕" })
             .addEventListener("click", (e) => {
               void (async () => {
@@ -1514,13 +1069,6 @@ export class MorningOSSettingTab extends PluginSettingTab {
             const t = area.tabs.find(tb => tb.key === this.selectedTabKey);
             if (t) renderTabDetail(tabDetailContainer, t);
           });
-        });
-        attachReorder(area.tabs.map((tab, index) => ({ key: tab.key, label: tab.label,
-          el: tabNav.children[index] as HTMLElement })), "horizontal", async (source, target, before) => {
-          try {
-            if (!moveEntry(area.tabs, source, target, before)) return;
-            await saveDataOnly(); renderTabNav();
-          } catch { /* Already reported. */ }
         });
       };
       renderTabNav();

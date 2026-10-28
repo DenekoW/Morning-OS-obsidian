@@ -1,26 +1,12 @@
-import { Plugin, WorkspaceLeaf, Notice, TFile } from "obsidian";
-import { MorningView, VIEW_TYPE_MORNING, AreaView, DumpView, TrashView, VIEW_TYPE_AREA, VIEW_TYPE_DUMP, VIEW_TYPE_ALL_ITEMS, VIEW_TYPE_TRASH } from "./view";
+import { Plugin, WorkspaceLeaf, Notice } from "obsidian";
+import { MorningView, VIEW_TYPE_MORNING, AreaView, DumpView, TrashView, VIEW_TYPE_AREA, VIEW_TYPE_DUMP, VIEW_TYPE_TRASH } from "./view";
 import { MorningOSSettings, DEFAULT_SETTINGS, MorningOSSettingTab } from "./settings";
-import { runAgent } from "./agent/run";
-import { loadRegistry, saveRegistry, createTask, initializeRegistryState, recoverRegistryAreas, promoteDueReminders } from "./task-registry";
-import { parseBulletFile, parseDailyNote, parseSectionFromFile, appendWinToLog, parseIdentityAnchor } from "./agent/vault-reader";
+import { runAgent, refreshBrief, AgentResult } from "./agent/run";
+import { scaffoldDailyNote } from "./agent/scaffold-daily-note";
+import { loadRegistry, saveRegistry, createTask, recoverRegistryAreas, REGISTRY_PATH, isRegistrySelfWrite } from "./task-registry";
+import { parseBulletFile, parseDailyNote, parseSectionFromFile, appendWinToLog } from "./agent/vault-reader";
 import { todayStr } from "./utils";
-import { getStateStore, STATE_PATH } from "./data/state-store";
-import { SharedSettingsStore, SHARED_SETTINGS_PATH, SHARED_SETTINGS_KEYS, cloneSettings } from "./data/shared-settings";
-import type { SharedSettings } from "./data/shared-settings";
-import { hasActiveEditingSession, onEditingSessionsSettled } from "./editing-session";
-import { canonicalWidgetDestination, WidgetDestinationError, WidgetNoteWriter, renderWidgetNote, selectWidgetContent, validateWidgetDestination } from "./widgets";
-import type { DailyBrief } from "./types";
-import { obsidianCalendarHttp } from "./integrations/calendar/obsidian-http";
-import { ObsidianCalendarCredentialStore } from "./integrations/calendar/secret-store";
-import { CALENDAR_AUTH_ACTION, RelayCalendarAuth } from "./integrations/calendar/relay-auth";
-import { CalendarPublisher } from "./integrations/calendar/publisher";
-import type { CalendarPublisherStatus } from "./integrations/calendar/contracts";
-import { beginCalendarCreation, cancelOwnedCalendarReminders, confirmDedicatedCalendar, enrollExistingCalendarReminders,
-  initializeCalendarIntegration, recordCalendarCreationUnknown, selectCalendarPublisher, setCalendarEnabled,
-  updateCalendarDefaults } from "./integrations/calendar/calendar-state";
-import { createDedicatedGoogleCalendar, recoverDedicatedGoogleCalendar } from "./integrations/calendar/google-transport";
-import { resolveReminderWindow } from "./integrations/calendar/time-policy";
+import { configureDailyTaskSync } from "./daily-note-sync";
 
 // Undocumented internal API surface used to coordinate with the remotely-save
 // community plugin (if installed) so large archive batches don't race its sync.
@@ -37,58 +23,15 @@ export default class MorningOSPlugin extends Plugin {
   settings: MorningOSSettings;
   settingTab: MorningOSSettingTab;
   private agentRunning = false;
-  private externalRefreshQueued = false;
-  private externalRefreshRunning = false;
-  private sharedSettingsStore: SharedSettingsStore;
-  private registeredAreaKeys = new Set<string>();
-  private viewsReady = false;
-  private areaLayoutPending = false;
-  private lastStateBytes: string | null = null;
-  private lastSettingsError = "";
-  private lastStateError = "";
-  private settingsWriteQueue: Promise<unknown> = Promise.resolve();
-  private settingsWriteSequence = 0;
-  private localSettingsWrites: { sequence: number; before: SharedSettings; after: SharedSettings; keys: string[] }[] = [];
-  private externalEditNoticeShown = false;
-  private refreshDeferredByEditor = false;
-  private refreshDeferredLayout = false;
-  private widgetWriter: WidgetNoteWriter | null = null;
-  private widgetRefreshQueue: Promise<void> = Promise.resolve();
-  private widgetRefreshTimer: number | null = null;
-  private widgetLastCheckedDate = todayStr();
-  widgetLastSuccess = "";
-  widgetLastError = "";
-  private calendarAuth: RelayCalendarAuth;
-  private calendarPublisher: CalendarPublisher;
-  private calendarDeviceId = "";
-  calendarLoginUrl = "";
 
   async onload() {
-    const savedSettings = (await this.loadData() ?? {}) as Record<string, unknown>;
-    const hobbySettingsRemoved = ["sourceHobbyTasks", "modeHobbyTasks", "hobbyTasksCount"]
-      .some(key => key in savedSettings);
-    delete savedSettings.sourceHobbyTasks;
-    delete savedSettings.modeHobbyTasks;
-    delete savedSettings.hobbyTasksCount;
-    this.settings = Object.assign(cloneSettings(DEFAULT_SETTINGS), savedSettings) as MorningOSSettings;
-    const widgetSources = new Set(["identity", "goals-short", "goals-long", "today-tasks", "inbox-tasks", "all-tasks"]);
-    this.settings.widgetNotes = Array.isArray(this.settings.widgetNotes)
-      ? this.settings.widgetNotes.filter((widgetExport): widgetExport is MorningOSSettings["widgetNotes"][number] =>
-        typeof widgetExport === "object" && widgetExport !== null &&
-        typeof widgetExport.id === "string" && typeof widgetExport.enabled === "boolean" &&
-        typeof widgetExport.destination === "string" && typeof widgetExport.source === "string" &&
-        widgetSources.has(widgetExport.source) && Number.isInteger(widgetExport.limit) && widgetExport.limit > 0
-      )
-      : [];
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData()) as MorningOSSettings;
+    configureDailyTaskSync(this.settings);
 
     // Migrate feedToLLM onto existing area configs that predate the field
     for (const area of this.settings.areas) {
       if (area.feedToLLM === undefined) {
         area.feedToLLM = !["family", "relationship"].includes(area.key);
-      }
-      for (const tab of area.tabs) {
-        if (tab.view_mode === undefined) tab.view_mode = "cards";
-        if (tab.fields === undefined) tab.fields = [];
       }
     }
 
@@ -102,55 +45,15 @@ export default class MorningOSPlugin extends Plugin {
       this.settings.sourceWins = DEFAULT_SETTINGS.sourceWins;
     }
 
-    this.sharedSettingsStore = new SharedSettingsStore({
-      adapter: this.app.vault.adapter,
-      loadLocal: key => this.app.loadLocalStorage(key),
-      saveLocal: (key, value) => this.app.saveLocalStorage(key, value),
-    }, this.settings, DEFAULT_SETTINGS);
-    try { await this.sharedSettingsStore.reconcile(); }
-    catch (error) { new Notice(`Morning OS: shared settings were not adopted — ${(error as Error).message}`); }
-
-    if (hobbySettingsRemoved) {
-      await this.persistLocalSettings();
-    }
-
     if (!this.settings.onboarded && this.settings.agentLastRunDate) {
       this.settings.onboarded = true;
-      await this.updateSettings({ onboarded: true });
+      await this.saveData(this.settings);
     }
 
-    // Preserve exact legacy bytes before activating the new versioned state.
-    try {
-      const stateInit = await initializeRegistryState(this.app);
-      if (stateInit.migrated) {
-        new Notice(`Morning OS: safely migrated ${stateInit.itemCount} item${stateInit.itemCount === 1 ? "" : "s"} to versioned state.`, 8000);
-      }
-    } catch (error) {
-      console.error("Morning OS state initialization failed:", error);
-      new Notice(`Morning OS: item data was not opened for writing — ${(error as Error).message}`);
-    }
-
-    const storedDeviceId: unknown = this.app.loadLocalStorage("morning-os-calendar-device-v1");
-    this.calendarDeviceId = typeof storedDeviceId === "string" && /^[a-f0-9]{32}$/.test(storedDeviceId)
-      ? storedDeviceId
-      : Array.from(globalThis.crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, "0")).join("");
-    if (storedDeviceId !== this.calendarDeviceId) this.app.saveLocalStorage("morning-os-calendar-device-v1", this.calendarDeviceId);
-    this.calendarAuth = new RelayCalendarAuth(obsidianCalendarHttp, new ObsidianCalendarCredentialStore(this.app.secretStorage));
-    try { this.calendarAuth.prepareSavedCredential(); }
-    catch (error) { console.error("Morning OS calendar credentials were not loaded:", error); }
-    this.calendarPublisher = new CalendarPublisher(this.app, this.calendarDeviceId, {
-      http: obsidianCalendarHttp,
-      tokenProvider: this.calendarAuth,
-    });
-    this.registerObsidianProtocolHandler(CALENDAR_AUTH_ACTION, params => {
-      void this.completeCalendarLogin(params.state, params.vault);
-    });
-
-    // Compatibility repair is inert after the versioned state takes ownership.
-    const recoveryAreas = cloneSettings(this.settings.areas);
-    const areasRecovery = await recoverRegistryAreas(this.app, recoveryAreas);
-    if (areasRecovery.settingsChanged && !this.sharedSettingsStore.isAdopted()) {
-      await this.updateSettings({ areas: recoveryAreas });
+    // Must run before any view or agent can load and re-save the registry.
+    const areasRecovery = await recoverRegistryAreas(this.app, this.settings.areas);
+    if (areasRecovery.settingsChanged) {
+      await this.saveData(this.settings);
     }
     if (areasRecovery.error) {
       console.error("Morning OS area recovery failed:", areasRecovery.error);
@@ -167,349 +70,34 @@ export default class MorningOSPlugin extends Plugin {
 
     this.registerView(VIEW_TYPE_MORNING, (leaf) => new MorningView(leaf, this.settings, this));
     this.registerView(VIEW_TYPE_DUMP, (leaf) => new DumpView(leaf, this.settings, this));
-    this.registerView(VIEW_TYPE_ALL_ITEMS, (leaf) => new DumpView(leaf, this.settings, this, true));
     this.registerView(VIEW_TYPE_TRASH, (leaf) => new TrashView(leaf, this.settings, this));
     for (const area of this.settings.areas) {
       const key = area.key;
       this.registerView(`${VIEW_TYPE_AREA}-${key}`, (leaf) => new AreaView(leaf, this.settings, this, key));
-      this.registeredAreaKeys.add(key);
     }
-
-    this.viewsReady = true;
 
     this.addRibbonIcon("sun", "Morning OS", () => {
       void this.activateView();
     });
 
-    this.registerEvent(this.app.vault.on("modify", file => {
-      if (!(file instanceof TFile)) return;
-      if (file.path === STATE_PATH || file.path === SHARED_SETTINGS_PATH) {
-        void this.reconcileExternalState();
-        return;
-      }
-      if (file.path === this.settings.sourceIdentity || file.path === `${this.settings.briefsDir}/${todayStr()}.json`) {
-        this.queueWidgetRefresh();
-      }
-    }));
-    for (const event of ["create", "delete"] as const) {
-      const changed = (file: { path: string }) => {
-        if (file.path === STATE_PATH || file.path === SHARED_SETTINGS_PATH) void this.reconcileExternalState();
-      };
-      this.registerEvent(event === "create" ? this.app.vault.on("create", changed) : this.app.vault.on("delete", changed));
-    }
-    this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
-      if ([STATE_PATH, SHARED_SETTINGS_PATH].includes(file.path) || [STATE_PATH, SHARED_SETTINGS_PATH].includes(oldPath)) void this.reconcileExternalState();
-    }));
-    this.registerEvent(this.app.workspace.on("active-leaf-change", () => {
-      void this.reconcileExternalState();
-    }));
-    this.registerDomEvent(window, "focus", () => { void this.reconcileExternalState(); void this.refreshDateSensitiveWidgets(); });
-    this.registerDomEvent(document, "visibilitychange", () => {
-      if (!document.hidden) void this.reconcileExternalState();
+    // External entry point (e.g. the Morning OS Float desktop widget):
+    // obsidian://morning-os?vault=<vault> focuses Obsidian and reveals the dashboard.
+    this.registerObsidianProtocolHandler("morning-os", () => {
+      void this.activateView();
     });
-    this.registerInterval(window.setInterval(() => {
-      if (!document.hidden) void this.reconcileExternalState();
-    }, 15_000));
-    this.registerInterval(window.setInterval(() => { void this.refreshDateSensitiveWidgets(); }, 60_000));
-    this.register(getStateStore(this.app).onCommitted(() => {
-      this.queueWidgetRefresh();
-      this.calendarPublisher.queue();
-    }));
-    this.register(onEditingSessionsSettled(() => {
-      void this.settleDeferredRefresh();
-    }));
+
+    // The desktop float widget (and manual edits or sync tools) change the
+    // registry file outside the plugin. Without this the dashboard shows stale
+    // tasks until Obsidian restarts. Self-writes are filtered by content.
+    this.registerEvent(
+      this.app.vault.on("modify", (file) => {
+        if (file.path !== REGISTRY_PATH) return;
+        this.scheduleExternalRegistryReload();
+      })
+    );
 
     this.settingTab = new MorningOSSettingTab(this.app, this);
     this.addSettingTab(this.settingTab);
-    this.addCommand({
-      id: "refresh-widget-notes",
-      name: "Refresh widget notes",
-      callback: () => { void this.refreshWidgetNotes(true); },
-    });
-    await this.refreshDateSensitiveWidgets();
-    this.calendarPublisher.queue();
-  }
-
-  sharedSettingsStatus(): { adopted: boolean; error: string } {
-    return { adopted: this.sharedSettingsStore.isAdopted(), error: this.sharedSettingsStore.error };
-  }
-
-  private async settleDeferredRefresh(): Promise<void> {
-    if (this.areaLayoutPending) await this.reregisterAreaViews();
-    if (this.refreshDeferredByEditor) {
-      const layout = this.refreshDeferredLayout;
-      this.refreshDeferredByEditor = false;
-      this.refreshDeferredLayout = false;
-      await this.refreshView(layout);
-      await this.reconcileExternalState();
-    }
-  }
-
-  sharedSettingsBaseline(): SharedSettings { return this.sharedSettingsStore.snapshot(); }
-
-  private async persistLocalSettings(): Promise<void> {
-    const local = cloneSettings(this.settings) as unknown as Record<string, unknown>;
-    if (this.sharedSettingsStore.isAdopted()) for (const key of SHARED_SETTINGS_KEYS) delete local[key];
-    await this.saveData(local);
-  }
-
-  async initializeSharedSettings(): Promise<void> {
-    await this.sharedSettingsStore.initialize();
-    await this.persistLocalSettings();
-    new Notice("Morning OS: shared settings initialized from this device. Sync settings.json before adopting it on your other device.");
-    await this.reregisterAreaViews();
-  }
-
-  updateSettings(patch: Partial<MorningOSSettings>, baseline?: SharedSettings): Promise<void> {
-    const intent = cloneSettings(patch);
-    const base = cloneSettings(baseline ?? this.sharedSettingsStore.snapshot());
-    const enqueuedAt = this.settingsWriteSequence;
-    const result = this.settingsWriteQueue.then(async () => {
-      // Rapid text callbacks may queue cumulative edits against the same baseline.
-      // Follow only this device's successful writes committed AFTER enqueue, not
-      // arbitrary old drafts or externally adopted changes.
-      for (const committed of this.localSettingsWrites) {
-        if (committed.sequence <= enqueuedAt) continue;
-        for (const key of SHARED_SETTINGS_KEYS) {
-          if (committed.keys.includes(key) && JSON.stringify(base[key]) === JSON.stringify(committed.before[key])) {
-            Object.assign(base, { [key]: cloneSettings(committed.after[key]) });
-          }
-        }
-      }
-      await this.sharedSettingsStore.update(intent, base);
-      this.settingsWriteSequence++;
-      this.localSettingsWrites.push({ sequence: this.settingsWriteSequence, before: base,
-        after: this.sharedSettingsStore.snapshot(), keys: SHARED_SETTINGS_KEYS.filter(key => key in intent) });
-      if (this.localSettingsWrites.length > 100) this.localSettingsWrites.shift();
-      const sharedKeys = new Set<string>(SHARED_SETTINGS_KEYS);
-      for (const [key, value] of Object.entries(intent)) {
-        if (!sharedKeys.has(key)) Object.assign(this.settings, { [key]: value });
-      }
-      await this.persistLocalSettings();
-      if (this.viewsReady && SHARED_SETTINGS_KEYS.some(key => key in intent)) await this.reregisterAreaViews();
-    });
-    this.settingsWriteQueue = result.catch(error => {
-      new Notice(`Morning OS: settings were not saved — ${(error as Error).message}`);
-    });
-    return result;
-  }
-
-  calendarStatus(): CalendarPublisherStatus {
-    return this.calendarPublisher?.status() ?? { state: "disabled", message: "Calendar publisher is not loaded.", updatedAt: 0 };
-  }
-
-  calendarDevice(): string {
-    return this.calendarDeviceId;
-  }
-
-  async initializeCalendar(defaultTime: string, timeZone: string): Promise<void> {
-    await initializeCalendarIntegration(this.app, this.calendarDeviceId, defaultTime, timeZone);
-  }
-
-  async useThisCalendarPublisher(): Promise<void> {
-    await selectCalendarPublisher(this.app, this.calendarDeviceId);
-  }
-
-  async startCalendarLogin(origin: string, relayKey: string): Promise<string> {
-    this.calendarAuth.configure(origin, relayKey);
-    const pending = await this.calendarAuth.start(this.app.vault.getName());
-    this.calendarLoginUrl = pending.authorizationUrl;
-    return pending.authorizationUrl;
-  }
-
-  async completeCalendarLogin(state?: string, vault?: string): Promise<void> {
-    if (!state || !vault) {
-      new Notice("Morning OS: calendar login callback was incomplete.");
-      return;
-    }
-    try {
-      const result = await this.calendarAuth.redeem(state, vault);
-      if (result.status === "pending") new Notice("Morning OS: Google consent has not returned yet.");
-      else {
-        this.calendarLoginUrl = "";
-        new Notice("Morning OS: Google Calendar connected on this device.");
-        this.calendarPublisher.queue();
-      }
-    } catch (error) {
-      new Notice(`Morning OS: calendar login failed — ${(error as Error).message}`);
-    }
-  }
-
-  async restoreCalendarLogin(): Promise<void> {
-    await this.calendarAuth.restore();
-    this.calendarPublisher.queue();
-  }
-
-  async createCalendarTestCalendar(): Promise<void> {
-    const { attemptId, integration } = await beginCalendarCreation(this.app);
-    try {
-      const calendar = await createDedicatedGoogleCalendar(integration, obsidianCalendarHttp, this.calendarAuth);
-      await confirmDedicatedCalendar(this.app, attemptId, calendar.id, calendar.summary);
-    } catch (error) {
-      await recordCalendarCreationUnknown(this.app, attemptId, "Creation outcome requires inspection");
-      throw error;
-    }
-  }
-
-  async recoverCalendarTestCalendar(id: string): Promise<void> {
-    const state = await getStateStore(this.app).read();
-    const integration = state.calendar;
-    const attemptId = integration?.calendar.attemptId;
-    if (!integration || !attemptId) throw new Error("No calendar creation attempt is available for recovery");
-    const calendar = await recoverDedicatedGoogleCalendar(id, integration, obsidianCalendarHttp, this.calendarAuth);
-    await confirmDedicatedCalendar(this.app, attemptId, calendar.id, calendar.summary);
-  }
-
-  async setCalendarPublishing(enabled: boolean): Promise<void> {
-    await setCalendarEnabled(this.app, enabled);
-    if (enabled) this.calendarPublisher.queue();
-  }
-
-  async setCalendarTimePolicy(defaultTime: string, timeZone: string): Promise<void> {
-    await updateCalendarDefaults(this.app, defaultTime, timeZone);
-    this.calendarPublisher.queue();
-  }
-
-  async enrollCalendarReminders(): Promise<number> {
-    const count = await enrollExistingCalendarReminders(this.app);
-    this.calendarPublisher.queue();
-    return count;
-  }
-
-  async cancelCalendarReminders(): Promise<number> {
-    const count = await cancelOwnedCalendarReminders(this.app);
-    this.calendarPublisher.queue();
-    return count;
-  }
-
-  calendarSchedulePreview(date: string, time: string, timeZone: string): string {
-    const window = resolveReminderWindow(date, time, timeZone, Date.now());
-    const ambiguity = window.ambiguity === "earlier" ? " (fall-back overlap: earlier instant)" : "";
-    return `${window.start} → ${window.end}${window.missed ? " (past; will be marked missed)" : ""}${ambiguity}`;
-  }
-
-  async disconnectCalendar(): Promise<void> {
-    await setCalendarEnabled(this.app, false);
-    this.calendarAuth.disconnect();
-    this.calendarLoginUrl = "";
-  }
-
-  async exportCalendarAcceptanceChecklist(): Promise<string> {
-    const state = await getStateStore(this.app).read();
-    const integration = state.calendar;
-    const path = `_generated/exports/calendar-acceptance-${Date.now().toString(36)}.md`;
-    const directory = "_generated/exports";
-    if (!(await this.app.vault.adapter.exists("_generated"))) await this.app.vault.adapter.mkdir("_generated");
-    if (!(await this.app.vault.adapter.exists(directory))) await this.app.vault.adapter.mkdir(directory);
-    const status = this.calendarStatus();
-    const content = [
-      "# Morning OS Calendar acceptance record", "",
-      `Plugin version: ${this.manifest.version}`,
-      `Recorded local day: ${todayStr()}`,
-      `Publisher status: ${status.state}`,
-      `Dedicated calendar confirmed: ${integration?.calendar.status === "ready" && integration.calendar.confirmed ? "yes" : "no"}`,
-      `Experimental publishing enabled: ${integration?.enabled === true ? "yes" : "no"}`,
-      "",
-      "This file deliberately excludes tokens, relay keys, authorization URLs, calendar IDs, event IDs, and provider response bodies.",
-      "", "## Record each result", "",
-      "- [ ] Same experimental build installed on PC and iPhone; record Obsidian, OS, and Google Calendar client versions.",
-      "- [ ] Restore the device-local credential on each device; verify no browser login is needed after restart.",
-      "- [ ] Publish A, edit to B from the other device, replay stale A and stale cancellation; record final alert or conflict.",
-      "- [ ] Exercise offline A→B→C, concurrent sibling edits, initial insert/clear race, and offline cancellation without resurrection.",
-      "- [ ] Terminate/restart around create, update, and cancellation; recover only the original event identity.",
-      "- [ ] Observe one synthetic Google Calendar alert on iPhone and PC after Obsidian closes; snooze/dismiss without changing task state.",
-      "- [ ] Record unresolved cases. Apple Calendar and Thunderbird are not accepted clients unless separately tested.",
-    ].join("\n");
-    await this.app.vault.adapter.write(path, content);
-    return path;
-  }
-
-  async saveWidgetNotes(): Promise<void> {
-    await this.updateSettings({ widgetNotes: this.settings.widgetNotes });
-    await this.refreshWidgetNotes();
-  }
-
-  queueWidgetRefresh(): void {
-    if (this.widgetRefreshTimer !== null) return;
-    this.widgetRefreshTimer = window.setTimeout(() => {
-      this.widgetRefreshTimer = null;
-      void this.refreshWidgetNotes();
-    }, 75);
-  }
-
-  async refreshWidgetNotes(showResult = false): Promise<void> {
-    const operation = async (): Promise<void> => {
-      const exports = this.settings.widgetNotes.filter(widgetExport => widgetExport.enabled);
-      if (!exports.length) {
-        this.widgetLastError = "";
-        if (showResult) new Notice("Morning OS: no widget-note exports are enabled.");
-        return;
-      }
-      try {
-        const destinations = new Set<string>();
-        for (const widgetExport of exports) {
-          const destination = validateWidgetDestination(widgetExport.destination);
-          const key = canonicalWidgetDestination(destination);
-          if (destinations.has(key)) throw new WidgetDestinationError(`Widget destination is duplicated: ${destination}`);
-          destinations.add(key);
-          if (!Number.isInteger(widgetExport.limit) || widgetExport.limit <= 0) {
-            throw new WidgetDestinationError(`Widget item limit must be positive: ${widgetExport.destination}`);
-          }
-        }
-        const [registry, identityLines, brief] = await Promise.all([
-          loadRegistry(this.app),
-          parseIdentityAnchor(this.app, this.settings),
-          this.loadCurrentBriefForWidgets(),
-        ]);
-        const writer = this.widgetWriter ??= new WidgetNoteWriter(this.app.vault);
-        const updatedAt = this.widgetTimestamp();
-        let changed = 0;
-        for (const widgetExport of exports) {
-          const selection = selectWidgetContent({ registry, identityLines, brief, source: widgetExport.source, limit: widgetExport.limit });
-          const result = await writer.write(widgetExport, renderWidgetNote({ export: widgetExport, selection, updatedAt }));
-          if (result.changed) changed++;
-        }
-        this.widgetLastSuccess = this.widgetTimestamp();
-        this.widgetLastError = "";
-        if (showResult) new Notice(`Morning OS: widget notes refreshed${changed ? ` (${changed} updated)` : " (already current)"}.`);
-      } catch (error) {
-        this.widgetLastError = (error as Error).message;
-        console.error("Morning OS widget-note refresh failed:", error);
-        if (showResult) new Notice(`Morning OS: widget notes were not refreshed — ${this.widgetLastError}`);
-      }
-    };
-    const queued = this.widgetRefreshQueue.then(operation, operation);
-    this.widgetRefreshQueue = queued.then(() => undefined, () => undefined);
-    await queued;
-  }
-
-  private async loadCurrentBriefForWidgets(): Promise<DailyBrief | null> {
-    const file = this.app.vault.getAbstractFileByPath(`${this.settings.briefsDir}/${todayStr()}.json`);
-    if (!(file instanceof TFile)) return null;
-    try {
-      return JSON.parse(await this.app.vault.read(file)) as DailyBrief;
-    } catch (error) {
-      throw new Error(`current briefing could not be read: ${(error as Error).message}`);
-    }
-  }
-
-  private widgetTimestamp(): string {
-    const now = new Date();
-    return `${todayStr()} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
-  }
-
-  private async refreshDateSensitiveWidgets(): Promise<void> {
-    const today = todayStr();
-    const dateChanged = today !== this.widgetLastCheckedDate;
-    this.widgetLastCheckedDate = today;
-    try {
-      await promoteDueReminders(this.app);
-      if (dateChanged) this.queueWidgetRefresh();
-      else await this.refreshWidgetNotes();
-    } catch (error) {
-      console.error("Morning OS due reminder promotion failed:", error);
-      this.widgetLastError = `Due reminder promotion failed: ${(error as Error).message}`;
-    }
   }
 
   async activateView() {
@@ -527,8 +115,7 @@ export default class MorningOSPlugin extends Plugin {
     await workspace.revealLeaf(leaf);
   }
 
-  /** The only user-facing briefing action. It uses AI only when the settings require it. */
-  async regenerateBriefing(): Promise<void> {
+  async triggerAgent(): Promise<void> {
     if (this.agentRunning) {
       new Notice("Morning OS: agent is already running.");
       return;
@@ -538,17 +125,16 @@ export default class MorningOSPlugin extends Plugin {
     new Notice("Morning OS: running briefing agent…");
 
     try {
-      const result = await runAgent(this.app, this.settings);
+      const result: AgentResult = await runAgent(this.app, this.settings);
       this.settings.agentLastRunDate = todayStr();
       this.settings.settingsChangedSinceRun = false;
-      await this.updateSettings({ agentLastRunDate: this.settings.agentLastRunDate, settingsChangedSinceRun: false });
+      await this.saveData(this.settings);
       if (result.mode === "direct-no-keys") {
         new Notice("Morning OS: brief ready (direct mode — no API key configured)");
       } else {
         new Notice("Morning OS: brief ready ✓");
       }
       this.settingTab.clearDirty();
-      await this.refreshWidgetNotes();
       await this.refreshView();
     } catch (err) {
       const msg = (err as Error).message;
@@ -558,7 +144,7 @@ export default class MorningOSPlugin extends Plugin {
       } else {
         new Notice(`Morning OS: agent failed — ${msg.slice(0, 120)}`);
       }
-      console.error("Morning OS briefing error:", err);
+      console.error("Morning OS agent error:", err);
     } finally {
       this.agentRunning = false;
     }
@@ -567,17 +153,17 @@ export default class MorningOSPlugin extends Plugin {
   async triggerRefresh(): Promise<void> {
     const today = todayStr();
 
-    void today;
+    await scaffoldDailyNote(today, this.app, this.settings);
 
     const briefPath = `${this.settings.briefsDir}/${today}.json`;
     const briefExists = await this.app.vault.adapter.exists(briefPath);
     if (!briefExists) {
-      await this.regenerateBriefing();
+      await this.triggerAgent();
       return;
     }
 
     try {
-      await this.regenerateBriefing();
+      await refreshBrief(this.app, this.settings);
       new Notice("Morning OS: brief refreshed ✓");
       await this.refreshView();
     } catch (err) {
@@ -585,110 +171,55 @@ export default class MorningOSPlugin extends Plugin {
     }
   }
 
-  async refreshView(layout = false): Promise<void> {
-    if (hasActiveEditingSession()) {
-      this.refreshDeferredByEditor = true;
-      this.refreshDeferredLayout ||= layout;
-      return;
-    }
+  async refreshView(): Promise<void> {
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_MORNING)) {
       await leaf.loadIfDeferred();
       if (leaf.view instanceof MorningView) await leaf.view.refresh();
     }
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_DUMP)) {
       await leaf.loadIfDeferred();
-      if (leaf.view instanceof DumpView) await leaf.view.refresh(layout);
-    }
-    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_ALL_ITEMS)) {
-      await leaf.loadIfDeferred();
-      if (leaf.view instanceof DumpView) await leaf.view.refresh(layout);
+      if (leaf.view instanceof DumpView) await leaf.view.refresh();
     }
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_TRASH)) {
       await leaf.loadIfDeferred();
       if (leaf.view instanceof TrashView) await leaf.view.refresh();
     }
-    if (!Array.isArray(this.settings.areas) || this.settings.areas.some(area => typeof area !== "object" || area === null || !Array.isArray(area.tabs))) {
-      new Notice("Morning OS: invalid legacy Areas configuration; defaults are shown. Review local data.json before initializing shared settings.");
-      this.settings.areas = cloneSettings(DEFAULT_SETTINGS.areas);
-    }
     for (const area of this.settings.areas) {
       for (const leaf of this.app.workspace.getLeavesOfType(`${VIEW_TYPE_AREA}-${area.key}`)) {
         await leaf.loadIfDeferred();
-        if (leaf.view instanceof AreaView) await leaf.view.refresh(layout);
+        if (leaf.view instanceof AreaView) await leaf.view.refresh();
       }
     }
   }
 
-  private async reconcileExternalState(): Promise<void> {
-    this.externalRefreshQueued = true;
-    if (this.externalRefreshRunning) return;
-    this.externalRefreshRunning = true;
-    try {
-      do {
-        this.externalRefreshQueued = false;
-        // Settings and item validation are independent: one invalid file must not
-        // prevent the other valid authority from being adopted.
+  private registryReloadTimer: number | null = null;
+
+  // Debounced reload for external registry edits: read the file, skip our own
+  // writes (content-identical), then re-render every view from disk.
+  private scheduleExternalRegistryReload(): void {
+    if (this.registryReloadTimer !== null) window.clearTimeout(this.registryReloadTimer);
+    this.registryReloadTimer = window.setTimeout(() => {
+      this.registryReloadTimer = null;
+      void (async () => {
         try {
-          if (await this.sharedSettingsStore.reconcile()) await this.reregisterAreaViews();
-          this.lastSettingsError = "";
-        } catch (error) {
-          console.error("Morning OS external settings refresh rejected:", error);
-          const message = (error as Error).message;
-          if (message !== this.lastSettingsError) new Notice(`Morning OS: shared settings were not adopted — ${message}`);
-          this.lastSettingsError = message;
-        }
-        try {
-          const bytes = await this.app.vault.adapter.exists(STATE_PATH)
-            ? await this.app.vault.adapter.read(STATE_PATH) : null;
-          if (bytes === this.lastStateBytes) continue;
-          if (bytes === null) throw new Error("Item state is missing; restore/sync it before editing.");
-          await getStateStore(this.app).read();
-          this.lastStateError = "";
-          if (await this.app.vault.adapter.read(STATE_PATH) !== bytes) { this.externalRefreshQueued = true; continue; }
-          await promoteDueReminders(this.app);
-          this.lastStateBytes = bytes;
-          this.calendarPublisher.queue();
-          await this.refreshWidgetNotes();
-          if (hasActiveEditingSession()) {
-            this.refreshDeferredByEditor = true;
-            if (!this.externalEditNoticeShown) {
-              this.externalEditNoticeShown = true;
-              new Notice("Morning OS: item data changed elsewhere. Your open draft is preserved; saving will show any conflicting fields.");
-            }
-            continue;
-          }
-          this.externalEditNoticeShown = false;
+          const content = await this.app.vault.adapter.read(REGISTRY_PATH);
+          if (isRegistrySelfWrite(content)) return;
           await this.refreshView();
-        } catch (error) {
-          console.error("Morning OS external state refresh rejected:", error);
-          const message = (error as Error).message;
-          if (message !== this.lastStateError) new Notice(`Morning OS: external item data was not adopted — ${message}`);
-          this.lastStateError = message;
-        }
-      } while (this.externalRefreshQueued);
-    } finally { this.externalRefreshRunning = false; }
+        } catch { /* file momentarily unreadable — the next change retries */ }
+      })();
+    }, 300);
   }
 
   async reregisterAreaViews() {
-    if (hasActiveEditingSession()) {
-      this.areaLayoutPending = true;
-      this.refreshDeferredByEditor = true;
-      this.refreshDeferredLayout = true;
-      return;
-    }
-    this.areaLayoutPending = false;
-    const active = new Set(this.settings.areas.map(area => area.key));
-    for (const key of this.registeredAreaKeys) {
-      if (!active.has(key)) this.app.workspace.getLeavesOfType(`${VIEW_TYPE_AREA}-${key}`).forEach(leaf => leaf.detach());
+    for (const area of this.settings.areas) {
+      this.app.workspace.getLeavesOfType(`${VIEW_TYPE_AREA}-${area.key}`)
+        .forEach(l => l.detach());
     }
     for (const area of this.settings.areas) {
       const key = area.key;
-      if (!this.registeredAreaKeys.has(key)) {
-        this.registerView(`${VIEW_TYPE_AREA}-${key}`, (leaf) => new AreaView(leaf, this.settings, this, key));
-        this.registeredAreaKeys.add(key);
-      }
+      this.registerView(`${VIEW_TYPE_AREA}-${key}`, (leaf) => new AreaView(leaf, this.settings, this, key));
     }
-    await this.refreshView(true);
+    await this.refreshView();
   }
 
   async activateDump() {
@@ -696,14 +227,6 @@ export default class MorningOSPlugin extends Plugin {
     const leaves = workspace.getLeavesOfType(VIEW_TYPE_DUMP);
     const leaf = leaves.length > 0 ? leaves[0] : workspace.getLeaf("tab");
     await leaf.setViewState({ type: VIEW_TYPE_DUMP, active: true });
-    await workspace.revealLeaf(leaf);
-  }
-
-  async activateAllItems() {
-    const { workspace } = this.app;
-    const leaves = workspace.getLeavesOfType(VIEW_TYPE_ALL_ITEMS);
-    const leaf = leaves.length > 0 ? leaves[0] : workspace.getLeaf("tab");
-    await leaf.setViewState({ type: VIEW_TYPE_ALL_ITEMS, active: true });
     await workspace.revealLeaf(leaf);
   }
 
@@ -725,7 +248,12 @@ export default class MorningOSPlugin extends Plugin {
   }
 
   async autoRefreshBrief(): Promise<void> {
-    // Item mutations intentionally never regenerate a briefing or contact an LLM.
+    const briefPath = `${this.settings.briefsDir}/${todayStr()}.json`;
+    if (!(await this.app.vault.adapter.exists(briefPath))) {
+      void this.triggerAgent();
+      return;
+    }
+    try { await refreshBrief(this.app, this.settings); } catch { /* non-critical */ }
   }
 
   async migrateVault(): Promise<void> {
@@ -851,7 +379,13 @@ export default class MorningOSPlugin extends Plugin {
     for (const t of technical) add(t, { areas: ["career"] });
     if (technical.length) results.push(`✓ ${technical.length} technical tasks → Career registry`);
 
-    // 5. Migrate today's daily note tasks → registry (undone only, no area)
+    // 5. Migrate Hobby Tasks → registry with interests area
+    const hobbySource = await resolveMigrationSource(this.settings.sourceHobbyTasks, "Hobby Tasks.md");
+    const hobby = hobbySource ? await parseBulletFile(hobbySource, this.app) : [];
+    for (const t of hobby) add(t, { areas: ["interests"] });
+    if (hobby.length) results.push(`✓ ${hobby.length} hobby tasks → Interests registry`);
+
+    // 6. Migrate today's daily note tasks → registry (undone only, no area)
     const dailyData = await parseDailyNote(today, this.app, this.settings);
     if (dailyData) {
       for (const t of dailyData.red_alert.filter(t => !t.done))
@@ -864,7 +398,7 @@ export default class MorningOSPlugin extends Plugin {
 
     if (tasksAdded > 0) await saveRegistry(this.app, registry);
 
-    // 6. Migrate ALL wins from all daily notes → Essential/Wins.md
+    // 7. Migrate ALL wins from all daily notes → Essential/Wins.md
     const winsPath = this.settings.sourceWins;
     if (!(await this.app.vault.adapter.exists(winsPath))) {
       await this.app.vault.adapter.write(winsPath, "");
@@ -891,12 +425,13 @@ export default class MorningOSPlugin extends Plugin {
     if (totalWins > 0) results.push(`✓ ${totalWins} historical wins → Wins.md`);
     else results.push(`✓ Created Wins.md`);
 
-    // 7. Archive old source files (only if content was migrated)
+    // 8. Archive old source files (only if content was migrated)
     const filesToArchive: { src: string; dest: string; migrated: boolean }[] = [
       { src: this.settings.sourceTacticalRules, dest: `${archiveDir}/Tactical Rules.md`, migrated: tacticalMigrated },
       { src: this.settings.sourceEmotionalRules, dest: `${archiveDir}/Emotional Rules.md`, migrated: emotionalMigrated },
       { src: this.settings.sourceGoals, dest: `${archiveDir}/Goals.md`, migrated: goalsMigrated },
       { src: this.settings.sourceTechnicalTasks, dest: `${archiveDir}/Technical Tasks.md`, migrated: technical.length > 0 },
+      { src: this.settings.sourceHobbyTasks, dest: `${archiveDir}/Hobby Tasks.md`, migrated: hobby.length > 0 },
     ];
 
     let archived = 0;
@@ -917,7 +452,7 @@ export default class MorningOSPlugin extends Plugin {
     }
     if (archived > 0) results.push(`✓ ${archived} old files archived to _archive/pre-migration/`);
 
-    // 8. Archive daily notes in sync-safe batches
+    // 9. Archive daily notes in sync-safe batches
     const dailyDir = this.settings.dailyNoteDir;
     if (await this.app.vault.adapter.exists(dailyDir)) {
       const dailyArchiveDir = "_archive/daily-notes";
@@ -1011,7 +546,7 @@ export default class MorningOSPlugin extends Plugin {
     }
 
     this.settings.migrationComplete = true;
-    await this.updateSettings({ migrationComplete: true });
+    await this.saveData(this.settings);
     this.refreshView();
 
     if (results.length === 0) {
@@ -1026,8 +561,5 @@ export default class MorningOSPlugin extends Plugin {
     await this.migrateVault();
   }
 
-  onunload() {
-    this.calendarPublisher?.stop();
-    this.calendarAuth?.unload();
-  }
+  onunload() { /* intentional — no teardown needed beyond Obsidian's built-in deregister */ }
 }

@@ -1,0 +1,1999 @@
+/* ── Morning OS Design Tokens ── */
+:root {
+  --mos-system:      #4a9d7f;
+  --mos-system-dim:  color-mix(in srgb, #4a9d7f 12%, transparent);
+  --mos-system-glow: color-mix(in srgb, #4a9d7f 28%, transparent);
+  --mos-accent:      #c9a84c;
+  --mos-accent-dim:  color-mix(in srgb, #c9a84c 12%, transparent);
+  --mos-accent-glow: color-mix(in srgb, #c9a84c 28%, transparent);
+  --mos-red:         #e5534b;
+  --mos-green:       #3fb950;
+  --mos-radius-sm:   6px;
+  --mos-radius-md:   10px;
+  --mos-radius-lg:   14px;
+  --mos-transition:  140ms ease;
+}
+.theme-light {
+  --mos-system: #1a7d5f;
+  --mos-accent: #8a6200;
+}
+
+.morning-os {
+  /* Amber accent — productivity signals (carried tasks, focus rings, suggestions) */
+  --mos-accent:      #c9a84c;
+  --mos-accent-dim:  color-mix(in srgb, #c9a84c 12%, transparent);
+  --mos-accent-glow: color-mix(in srgb, #c9a84c 28%, transparent);
+
+  /* System color — What's New, feedback, product communication */
+  --mos-system:      #4a9d7f;
+  --mos-system-dim:  color-mix(in srgb, #4a9d7f 12%, transparent);
+  --mos-system-glow: color-mix(in srgb, #4a9d7f 28%, transparent);
+
+  /* Semantic colors — fall through to Obsidian theme vars */
+  --mos-red:    var(--color-red,    #e5534b);
+  --mos-green:  var(--color-green,  #3fb950);
+  --mos-orange: var(--color-orange, #c9700a);
+  --mos-blue:   var(--color-blue,   #388bfd);
+  --mos-purple: var(--color-purple, #a371f7);
+
+  /* Rose/mauve — personal life, hobby, long-term vision */
+  --mos-rose:     #e05585;
+  --mos-rose-dim: color-mix(in srgb, #e05585 12%, transparent);
+
+  --mos-red-rgb:    var(--color-red-rgb,    229, 83, 75);
+  --mos-green-rgb:  var(--color-green-rgb,  63, 185, 80);
+  --mos-orange-rgb: var(--color-orange-rgb, 201, 112, 10);
+  --mos-blue-rgb:   var(--color-blue-rgb,   56, 139, 253);
+  --mos-purple-rgb: var(--color-purple-rgb, 163, 113, 247);
+
+  /* Text hierarchy — opacity-based off Obsidian's text-normal */
+  --mos-text:           var(--text-normal);
+  --mos-text-secondary: color-mix(in srgb, var(--text-normal) 65%, transparent);
+  --mos-text-faint:     color-mix(in srgb, var(--text-normal) 35%, transparent);
+
+  /* Shape */
+  --mos-radius-sm: 6px;
+  --mos-radius-md: 10px;
+  --mos-radius-lg: 14px;
+
+  /* Motion */
+  --mos-transition: 140ms ease;
+}
+
+/* Research operating system additions */
+.mos-section-header,
+.mos-workload-summary,
+.mos-project-health-summary,
+.mos-project-next-edit {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.mos-section-header .morning-os-section-heading,
+.mos-workload-summary .morning-os-section-heading { margin-right: auto; }
+.mos-section-note,
+.mos-workload-summary > span,
+.mos-recency { color: var(--mos-text-faint); font-size: 0.78em; }
+.mos-workload-summary { margin-bottom: 8px; }
+.mos-workload-summary > span:last-child { flex-basis: 100%; }
+.mos-focus-section,
+.mos-routines-section,
+.mos-morning-planning,
+.mos-projects-section,
+.mos-shutdown-section { margin-top: 10px; }
+.mos-focus-card { border-left: 2px solid var(--mos-system); }
+.mos-active-session { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; border-left: 2px solid var(--mos-accent); }
+.mos-active-label { color: var(--mos-accent); font-size: 0.7em; font-weight: 700; letter-spacing: 0.12em; }
+.mos-active-main { display: flex; flex: 1; align-items: baseline; justify-content: space-between; gap: 12px; min-width: 0; }
+.mos-active-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mos-focus-elapsed { font-variant-numeric: tabular-nums; font-size: 1.15em; font-weight: 650; }
+.mos-active-controls, .mos-routine-controls { display: flex; gap: 6px; flex-wrap: wrap; }
+.mos-routines-card { padding-top: 4px; padding-bottom: 4px; }
+.mos-routine-row { display: flex; gap: 14px; align-items: center; padding: 10px 0; border-top: 1px solid var(--background-modifier-border); }
+.mos-routine-row:first-child { border-top: 0; }
+.mos-routine-copy { display: grid; gap: 4px; flex: 1 1 260px; min-width: 0; }
+.mos-routine-title { font-weight: 600; }
+.mos-routine-meta { color: var(--mos-text-secondary); font-size: 0.78em; }
+.mos-routine-progress { height: 4px; overflow: hidden; border-radius: 999px; background: var(--background-modifier-border); }
+.mos-routine-progress-fill { height: 100%; background: var(--mos-system); border-radius: inherit; }
+.mos-reading-history { color: var(--mos-text-faint); font-size: 0.75em; }
+.mos-reading-history summary { cursor: pointer; }
+.mos-reading-history > div { padding: 2px 0; }
+.mos-focus-summary { color: var(--mos-system); font-size: 0.85em; font-weight: 600; }
+.mos-focus-row,
+.mos-planning-task-row,
+.mos-project-task-row,
+.mos-proposal-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 0;
+}
+.mos-focus-order {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  border-radius: 50%;
+  background: var(--mos-system-dim);
+  color: var(--mos-system);
+  font-weight: 700;
+}
+.mos-meta-chip {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: var(--mos-text-secondary);
+  font-size: 0.72em;
+  white-space: nowrap;
+}
+.mos-meta-chip.is-blocked { color: var(--mos-red); border-color: color-mix(in srgb, var(--mos-red) 35%, transparent); }
+.mos-meta-chip.is-waiting { color: var(--mos-accent); }
+.mos-morning-planning { border: 1px solid var(--background-modifier-border); border-radius: var(--mos-radius-lg); padding: 12px 16px; }
+.mos-planning-header { cursor: pointer; list-style: none; }
+.mos-planning-header::-webkit-details-marker { display: none; }
+.mos-planning-content { padding-top: 10px; }
+.mos-planning-project-suggestion { padding: 8px 0; border-top: 1px solid var(--background-modifier-border); }
+.mos-planning-project-suggestion:first-of-type { border-top: 0; }
+.mos-planning-project-name { display: block; color: var(--mos-text-secondary); font-size: 0.78em; font-weight: 650; margin-bottom: 2px; }
+.mos-project-picker-modal { width: min(720px, calc(100vw - 32px)); }
+.mos-project-picker-list { max-height: min(62vh, 620px); overflow-y: auto; border-block: 1px solid var(--background-modifier-border); }
+.mos-project-picker-row { display: flex; align-items: center; gap: 12px; padding: 10px 2px; border-bottom: 1px solid var(--background-modifier-border); }
+.mos-project-picker-row:last-child { border-bottom: 0; }
+.mos-project-picker-copy { flex: 1; min-width: 0; }
+.mos-project-picker-title { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.mos-project-picker-row > .mos-btn { flex: 0 0 auto; }
+.mos-last-night-task { margin-bottom: 14px; padding: 10px 12px; border-left: 2px solid var(--mos-accent); background: var(--mos-accent-dim); border-radius: var(--mos-radius-sm); }
+.mos-planning-ai-row { display: flex; justify-content: flex-end; margin-bottom: 6px; }
+.mos-task-assistant-results { display: grid; gap: 8px; margin-top: 12px; }
+.mos-task-assistant-choice { width: 100%; text-align: left; }
+.mos-task-assistant-proposal, .mos-task-assistant-activity { padding: 10px 12px; border: 1px solid var(--background-modifier-border); border-radius: var(--mos-radius-sm); }
+.mos-task-assistant-activity { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.mos-planning-task-row .mos-planning-task-text,
+.mos-project-task-text,
+.mos-focus-row .morning-os-task-text { flex: 1 1 220px; }
+.mos-planning-complete { margin-top: 12px; }
+.mos-project-health { border-top: 1px solid var(--background-modifier-border); }
+.mos-project-health-summary { cursor: pointer; padding: 14px 2px; list-style: none; }
+.mos-project-health-main { display: grid; gap: 3px; flex: 1 1 320px; }
+.mos-project-health-main > span { color: var(--mos-text-secondary); font-size: 0.82em; }
+.mos-project-health-main .mos-project-next { color: var(--text-normal); }
+.mos-recency.is-stale { color: var(--mos-red); }
+.mos-project-health-body { margin-bottom: 12px; }
+.mos-project-next-edit input { flex: 1 1 240px; }
+.mos-shutdown-card { display: grid; gap: 10px; }
+.mos-shutdown-thoughts { min-height: 72px; resize: vertical; }
+.mos-task-board-link {
+  position: absolute;
+  right: 0;
+  top: 24px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--mos-radius-sm);
+  background: var(--background-primary-alt);
+  color: var(--text-muted);
+  padding: 7px 12px;
+  cursor: pointer;
+}
+.mos-task-board-link:hover { color: var(--text-normal); border-color: var(--interactive-accent); }
+.mos-proposal-summary { font-weight: 600; }
+.mos-proposal-row { border-top: 1px solid var(--background-modifier-border); }
+
+@media (max-width: 600px) {
+  .mos-task-board-link { position: static; align-self: flex-start; margin-top: 8px; }
+  .mos-focus-row,
+  .mos-routine-row,
+  .mos-active-session,
+  .mos-planning-task-row,
+  .mos-project-task-row { align-items: flex-start; }
+  .mos-meta-chip { white-space: normal; }
+  .mos-routine-controls, .mos-active-controls { width: 100%; }
+  .mos-task-progress { grid-template-columns: 1fr; margin-left: 0; }
+}
+
+/* Light mode adjustments */
+.theme-light .morning-os {
+  --mos-accent:      #8a6200;
+  --mos-accent-dim:  color-mix(in srgb, #8a6200 12%, transparent);
+  --mos-accent-glow: color-mix(in srgb, #8a6200 22%, transparent);
+
+  --mos-system:      #1a7d5f;
+  --mos-system-dim:  color-mix(in srgb, #1a7d5f 12%, transparent);
+  --mos-system-glow: color-mix(in srgb, #1a7d5f 22%, transparent);
+
+  --mos-rose:     #a05570;
+  --mos-rose-dim: color-mix(in srgb, #a05570 12%, transparent);
+}
+
+/* ── Base ── */
+.morning-os {
+  padding: 0;
+  font-family: var(--font-interface);
+  background: var(--background-primary);
+  color: var(--text-normal);
+  height: 100%;
+  position: relative;
+}
+
+.morning-os-scroll {
+  height: 100%;
+  overflow-y: auto;
+}
+
+.morning-os-wrapper {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 28px 24px 80px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ── Header ── */
+.morning-os-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 20px 0 16px 0;
+  position: relative;
+}
+
+
+.morning-os-date-weekday {
+  font-size: 2em;
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  color: var(--text-normal);
+  line-height: 1.15;
+}
+
+.morning-os-date-numeric {
+  font-size: 0.95em;
+  color: var(--mos-text-secondary);
+  letter-spacing: 0.01em;
+}
+
+/* ── Floating actions ── */
+.morning-os-floating-actions {
+  position: absolute;
+  top: 16px;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  z-index: 100;
+  padding: 12px 10px;
+  width: 160px;
+  border-radius: var(--mos-radius-lg) 0 0 var(--mos-radius-lg);
+  background: color-mix(in srgb, var(--background-primary) 60%, transparent);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid color-mix(in srgb, var(--text-normal) 10%, transparent);
+  border-right: none;
+  box-shadow: -4px 4px 24px color-mix(in srgb, var(--text-normal) 8%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(8px);
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.morning-os-floating-actions:hover,
+.morning-os-floating-handle:hover + .morning-os-floating-actions {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0);
+}
+
+.morning-os-floating-handle {
+  position: absolute;
+  top: 24px;
+  right: 0;
+  z-index: 101;
+  width: 4px;
+  height: 48px;
+  border-radius: 4px 0 0 4px;
+  background: linear-gradient(180deg, var(--mos-system), var(--mos-accent));
+  opacity: 0.5;
+  cursor: pointer;
+  transition: opacity 180ms ease, width 180ms ease;
+}
+
+.morning-os-floating-handle:hover {
+  opacity: 1;
+  width: 6px;
+}
+
+.morning-os-fab-label {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mos-text-faint);
+  padding: 6px 6px 2px;
+}
+
+.morning-os-floating-actions button.morning-os-fab,
+.morning-os-floating-actions button.morning-os-fab-view {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  margin: 0;
+  text-align: inherit;
+  text-transform: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 12px;
+  border-radius: var(--mos-radius-sm);
+  font-size: 13px;
+  color: var(--text-normal);
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+.morning-os-floating-actions button.morning-os-fab-view {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.morning-os-floating-actions button.morning-os-fab:hover,
+.morning-os-floating-actions button.morning-os-fab-view:hover {
+  background: var(--mos-system);
+  color: #fff;
+  box-shadow: none;
+}
+
+/* ── Identity strip ── */
+.morning-os-identity-strip {
+  background: transparent;
+  border-radius: 0;
+  padding: 8px 0 12px 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+  display: flex;
+  align-items: baseline;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.morning-os-identity-label {
+  font-size: 0.72em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--mos-text-faint);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.morning-os-identity-rules {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex: 1;
+}
+
+.morning-os-identity-rule {
+  font-size: 0.88em;
+  color: var(--mos-text-secondary);
+  background: transparent;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--mos-radius-sm);
+  padding: 3px 10px;
+  line-height: 1.4;
+  transition: color var(--mos-transition), border-color var(--mos-transition);
+}
+
+.morning-os-identity-rule:hover {
+  color: var(--text-normal);
+  border-color: var(--mos-accent);
+}
+
+/* ── Goals (click to reveal) ── */
+.morning-os-goals-wrap {
+  position: relative;
+}
+
+.morning-os-goals-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  padding: 8px 0;
+  background: transparent;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.morning-os-goals-toggle-label {
+  font-size: 0.72em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--mos-text-faint);
+}
+
+.morning-os-goals-toggle-hint {
+  font-size: 0.72em;
+  color: var(--mos-accent);
+  font-style: normal;
+  white-space: nowrap;
+  margin-left: auto;
+}
+
+.morning-os-goals-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 1;
+}
+
+.morning-os-goals-preview-pill {
+  font-size: 0.82em;
+  padding: 2px 9px;
+  border-radius: var(--mos-radius-sm);
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.morning-os-goals-pill-short {
+  background: color-mix(in srgb, var(--mos-blue) 12%, transparent);
+  color: var(--mos-blue);
+}
+
+.morning-os-goals-pill-long {
+  background: var(--mos-rose-dim);
+  color: var(--mos-rose);
+}
+
+.morning-os-goals-panel {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 100;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--mos-radius-lg);
+  padding: 16px;
+  box-shadow: var(--shadow-l);
+}
+
+.morning-os-goals-wrap:hover .morning-os-goals-panel,
+.morning-os-goals-wrap.is-open .morning-os-goals-panel {
+  display: block;
+}
+
+.morning-os-goals-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.morning-os-goals-col h2 {
+  font-size: 0.72em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--mos-text-faint);
+  margin: 0 0 8px 0;
+}
+
+/* ── Two-column body ── */
+.morning-os-body {
+  display: grid;
+  grid-template-columns: 60% 40%;
+  gap: 24px;
+  align-items: start;
+}
+
+.morning-os-body.is-single-column {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.morning-os-left,
+.morning-os-right {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* ── Section headings ── */
+.morning-os-section-heading {
+  font-size: 0.68em;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--mos-text-faint);
+  margin: 20px 0 6px 0;
+}
+
+.morning-os-left .morning-os-section-heading:first-child,
+.morning-os-right .morning-os-section-heading:first-child {
+  margin-top: 0;
+}
+
+.morning-os .morning-os-red-heading,
+.morning-os-wrapper .morning-os-red-heading {
+  color: var(--mos-red);
+}
+
+.morning-os-green-heading {
+  color: var(--mos-green);
+}
+
+/* ── Cards ── */
+.morning-os-card {
+  background: var(--background-primary);
+  border-radius: var(--mos-radius-md);
+  padding: 12px 16px;
+}
+
+.morning-os-card-red {
+  border-left: 2px solid var(--mos-red);
+  padding-left: 14px;
+}
+
+.morning-os-card-rules {
+  border-left: 2px solid rgba(255, 255, 255, 0.6);
+  padding-left: 14px;
+}
+
+.theme-light .morning-os-card-rules {
+  border-left: 2px solid rgba(0, 0, 0, 0.75);
+}
+
+.morning-os-card-wins {
+  border-left: 2px solid var(--mos-green);
+  padding-left: 14px;
+}
+
+.morning-os-card ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.morning-os-card ul li {
+  padding: 4px 0;
+  font-size: 0.92em;
+  color: var(--text-normal);
+  line-height: 1.55;
+}
+
+.morning-os-card-rules ul li {
+  color: var(--mos-text-secondary);
+  line-height: 1.7;
+  font-size: 0.88em;
+}
+
+.morning-os-card ul li::before {
+  content: "·";
+  margin-right: 10px;
+  color: var(--mos-text-faint);
+}
+
+/* ── Tasks ── */
+.morning-os-task-row {
+  display: flex;
+  align-items: center;
+  padding: 5px 0;
+  gap: 10px;
+}
+
+.morning-os-task-row input[type="checkbox"] {
+  margin: 0;
+  flex-shrink: 0;
+  accent-color: var(--mos-accent);
+}
+
+.mos-subtask-list {
+  margin-left: 10px;
+  padding-left: 10px;
+  border-left: 2px solid var(--background-modifier-border);
+}
+
+.mos-subtask-list.is-collapsed {
+  display: none;
+}
+
+.mos-task-row-child {
+  padding: 3px 0;
+}
+
+.mos-task-row-child .morning-os-task-text {
+  font-size: 0.93em;
+}
+
+.mos-subtask-toggle {
+  background: none;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  margin: 0;
+  width: 14px;
+  flex-shrink: 0;
+  font-size: 0.75em;
+  line-height: 1;
+  color: var(--mos-text-faint);
+  cursor: pointer;
+}
+
+.mos-subtask-toggle:hover {
+  color: var(--text-normal);
+}
+
+.morning-os-task-text {
+  flex: 1;
+  font-size: 0.92em;
+  color: var(--text-normal);
+  line-height: 1.5;
+}
+
+.morning-os-task-done .morning-os-task-text {
+  text-decoration: line-through;
+  color: var(--mos-text-faint);
+}
+
+.morning-os-carried-badge {
+  font-size: 0.68em;
+  font-weight: 600;
+  color: var(--mos-accent);
+  background: var(--mos-accent-dim);
+  padding: 2px 7px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+.morning-os-reminder-badge {
+  font-size: 0.68em;
+  color: var(--mos-text-faint);
+  background: transparent;
+  padding: 2px 0 2px 8px;
+  white-space: nowrap;
+}
+
+.mos-notes-badge {
+  font-size: 0.8em;
+  padding: 2px 0 2px 6px;
+  opacity: 0.75;
+  white-space: nowrap;
+}
+
+/* ── Suggestion ── */
+.morning-os-suggestion-card {
+  border-left: 2px solid var(--mos-accent);
+  padding-left: 14px;
+}
+
+.morning-os-suggestion-text {
+  font-size: 0.92em;
+  color: var(--text-normal);
+  line-height: 1.6;
+  margin: 0 0 10px 0;
+  font-style: italic;
+}
+
+.morning-os-suggestion-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.morning-os-suggestion-source {
+  font-size: 0.72em;
+  color: var(--mos-text-faint);
+}
+
+.morning-os-suggestion-reactions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.morning-os-reaction-btn {
+  background: none;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--mos-radius-sm);
+  padding: 2px 8px;
+  cursor: pointer;
+  font-size: 0.88em;
+  line-height: 1.6;
+  color: var(--text-muted);
+  transition: background var(--mos-transition), border-color var(--mos-transition);
+}
+
+.morning-os-reaction-btn:hover {
+  background: var(--background-modifier-hover);
+}
+
+.morning-os-reaction-btn.morning-os-reaction-active {
+  background: var(--mos-accent-dim);
+  border-color: var(--mos-accent);
+}
+
+/* ── Hobby tasks ── */
+.morning-os-hobby-card {
+  border-left: 2px solid var(--mos-rose);
+  padding-left: 14px;
+}
+
+.morning-os-hobby-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.morning-os-hobby-list li {
+  font-size: 0.88em;
+  color: var(--text-normal);
+  background: var(--background-secondary);
+  border-radius: var(--mos-radius-sm);
+  padding: 3px 10px;
+  line-height: 1.5;
+}
+
+.morning-os-hobby-list li::before {
+  content: none;
+}
+
+/* ── Wins ── */
+.morning-os-wins .morning-os-section-heading {
+  margin-top: 0;
+}
+
+.morning-os-wins-list {
+  margin-bottom: 10px;
+}
+
+.morning-os-wins-item {
+  margin: 0 0 6px 0;
+  font-size: 0.92em;
+  color: var(--text-normal);
+}
+
+.morning-os-wins-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.morning-os-wins-input {
+  flex: 1;
+  font-size: 0.88em;
+  padding: 5px 10px;
+  border-radius: var(--mos-radius-sm);
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
+  outline: none;
+  transition: border-color var(--mos-transition), box-shadow var(--mos-transition);
+}
+
+.morning-os-wins-input:focus {
+  border-color: var(--mos-accent);
+  box-shadow: 0 0 0 2px var(--mos-accent-glow);
+}
+
+.mos-capture-input {
+  width: 100%;
+}
+
+/* ── Unified button system ── */
+.mos-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  font: inherit;
+  margin: 0;
+  text-align: inherit;
+  text-transform: none;
+  display: inline-flex;
+  box-sizing: border-box;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: var(--mos-radius-sm);
+  background: color-mix(in srgb, var(--text-normal) 6%, transparent);
+  color: var(--mos-text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  width: auto;
+  transition: background 140ms ease, color 140ms ease;
+}
+.mos-btn:hover {
+  background: color-mix(in srgb, var(--mos-system) 22%, transparent);
+  color: var(--mos-system);
+}
+
+/* Primary — teal filled */
+.mos-btn.mos-btn-primary {
+  background: var(--mos-system);
+  color: #fff;
+  font-weight: 600;
+}
+.mos-btn.mos-btn-primary:hover {
+  background: color-mix(in srgb, var(--mos-system) 80%, #fff);
+  color: #fff;
+}
+button.mos-btn-success:disabled {
+  background: color-mix(in srgb, #3fb950 20%, transparent);
+  color: #3fb950;
+  border-color: #3fb950;
+  cursor: default;
+  opacity: 1;
+}
+
+/* Full-width — FAB panel buttons, ctx menu items */
+.mos-btn.mos-btn-full {
+  width: 100%;
+}
+
+/* Inline — compact, auto width */
+.mos-btn.mos-btn-inline {
+  padding: 4px 10px;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+/* Tab — used in area tabs */
+.mos-btn.mos-btn-tab {
+  padding: 5px 14px;
+  font-size: 12px;
+}
+.mos-btn.mos-btn-tab.is-active {
+  background: color-mix(in srgb, var(--mos-system) 22%, transparent);
+  color: var(--mos-system);
+}
+
+/* Segmented — urgency, feedback type */
+.mos-btn.mos-btn-seg {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.mos-btn.mos-btn-seg.is-active {
+  background: color-mix(in srgb, var(--mos-system) 22%, transparent);
+  color: var(--mos-system);
+}
+
+/* Icon — single character buttons like ↑ ↓ */
+.mos-btn.mos-btn-icon {
+  padding: 5px 10px;
+  font-size: 14px;
+}
+
+/* Select styled like a button */
+select.mos-btn.mos-btn-select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 24px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  cursor: pointer;
+}
+/* Force readable option colors regardless of theme */
+select.mos-btn.mos-btn-select option {
+  background: var(--background-primary, #1e1e1e);
+  color: var(--text-normal, #dcddde);
+}
+.theme-light select.mos-btn.mos-btn-select option {
+  background: #ffffff;
+  color: #1a1a1a;
+}
+
+.morning-os-empty-state {
+  color: var(--mos-text-faint);
+  font-style: italic;
+  font-size: 0.88em;
+  margin: 0 0 10px 0;
+}
+
+/* ── Empty state ── */
+.morning-os-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-muted);
+  font-size: 0.95em;
+}
+
+/* ── Settings dirty indicators ── */
+h3[data-dirty]::after {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--mos-orange);
+  margin-left: 8px;
+  vertical-align: middle;
+  position: relative;
+  top: -1px;
+}
+
+.mos-run-banner-slot {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  margin: 4px 0 8px;
+  border-radius: var(--mos-radius-sm);
+  background: color-mix(in srgb, var(--mos-orange) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--mos-orange) 35%, transparent);
+  color: var(--mos-orange);
+  font-size: 0.88em;
+}
+
+.mos-run-banner-slot[data-visible] {
+  display: flex;
+}
+
+/* ── Mobile ── */
+@media (max-width: 600px) {
+  .morning-os-wrapper {
+    padding: 20px 16px 60px;
+  }
+
+  .morning-os-body {
+    grid-template-columns: 1fr;
+  }
+
+  .morning-os-goals-panel {
+    position: static;
+    border: none;
+    box-shadow: none;
+    padding: 12px 0 0;
+  }
+
+  .morning-os-goals-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .morning-os-identity-strip {
+    flex-direction: column;
+    gap: 10px;
+  }
+}
+
+/* ── What's New banner ── */
+.mos-whats-new-banner {
+  border: 1px solid var(--mos-system-dim);
+  border-left: 3px solid var(--mos-system);
+  border-radius: var(--mos-radius-md);
+  padding: 12px 16px;
+  background: var(--mos-system-dim);
+}
+
+.mos-whats-new-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.mos-whats-new-label {
+  font-size: 0.82em;
+  font-weight: 600;
+  color: var(--mos-system);
+}
+
+.mos-whats-new-badge {
+  background: var(--mos-system);
+  color: var(--background-primary);
+  font-size: 0.78em;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-right: 6px;
+}
+
+.mos-whats-new-dismiss {
+  font-size: 0.75em;
+  padding: 2px 10px;
+  border-radius: var(--mos-radius-sm);
+  border: 1px solid var(--mos-system);
+  background: transparent;
+  color: var(--mos-system);
+  cursor: pointer;
+  transition: background var(--mos-transition), color var(--mos-transition);
+}
+
+.mos-whats-new-dismiss:hover {
+  background: var(--mos-system);
+  color: var(--background-primary);
+}
+
+.mos-whats-new-list {
+  margin: 0;
+  padding-left: 1.1em;
+  list-style: disc;
+}
+
+.mos-whats-new-note {
+  font-size: 0.85em;
+  color: var(--mos-text-secondary);
+  line-height: 1.6;
+  font-style: italic;
+  margin: 0 0 10px 0;
+}
+
+.mos-whats-new-summary {
+  font-size: 0.82em;
+  font-weight: 600;
+  color: var(--mos-system);
+  margin: 0 0 10px 0;
+  line-height: 1.5;
+}
+
+.mos-whats-new-section-heading {
+  font-size: 0.68em;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--mos-text-faint);
+  margin: 10px 0 4px 0;
+}
+
+.mos-whats-new-list li {
+  font-size: 0.88em;
+  color: var(--mos-text-secondary);
+  padding: 2px 0;
+  line-height: 1.5;
+}
+
+/* ── Feedback card ── */
+.mos-feedback-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: var(--mos-radius-md);
+  border: 1px solid var(--mos-system-dim);
+  border-left: 3px solid var(--mos-system);
+  background: var(--mos-system-dim);
+  margin-top: 4px;
+}
+
+.mos-feedback-title {
+  font-size: 0.88em;
+  font-weight: 600;
+  color: var(--mos-system);
+}
+
+.mos-feedback-sub {
+  font-size: 0.78em;
+  color: var(--mos-text-faint);
+  margin-top: 2px;
+}
+
+.mos-feedback-btn {
+  font-size: 0.82em;
+  padding: 5px 14px;
+  border-radius: var(--mos-radius-sm);
+  border: 1px solid var(--mos-system);
+  background: transparent;
+  color: var(--mos-system);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background var(--mos-transition), color var(--mos-transition);
+}
+
+.mos-feedback-btn:hover {
+  background: var(--mos-system);
+  color: var(--background-primary);
+}
+
+/* ── Feedback modal ── */
+.mos-feedback-modal-title {
+  font-size: 1.1em;
+  font-weight: 600;
+  color: var(--text-normal);
+  margin: 0 0 4px 0;
+}
+
+.mos-feedback-modal-sub {
+  font-size: 0.85em;
+  color: var(--text-muted);
+  margin: 0 0 16px 0;
+}
+
+.mos-feedback-type-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+/* mos-feedback-type-btn → now .mos-btn.mos-btn-seg — no separate styles needed */
+
+.mos-feedback-textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--mos-radius-sm);
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: 0.9em;
+  font-family: var(--font-interface);
+  resize: vertical;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color var(--mos-transition);
+}
+
+.mos-feedback-textarea:focus {
+  border-color: var(--mos-system);
+}
+
+.mos-feedback-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
+/* mos-feedback-submit-btn → now .mos-btn.mos-btn-primary */
+
+.mos-feedback-status {
+  font-size: 0.8em;
+  color: var(--text-error);
+  flex: 1;
+}
+
+.mos-feedback-success {
+  text-align: center;
+  padding: 24px 0 8px;
+  font-size: 1em;
+  font-weight: 600;
+  color: var(--mos-green);
+}
+
+/* ── Onboarding ── */
+.morning-os-onboarding {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 40px 24px;
+  text-align: center;
+  gap: 8px;
+}
+
+.mos-onboard-icon {
+  color: var(--mos-accent);
+  margin-bottom: 12px;
+}
+
+.mos-onboard-title {
+  font-size: 1.8em;
+  font-weight: 700;
+  color: var(--text-normal);
+  margin: 0;
+}
+
+.mos-onboard-subtitle {
+  font-size: 0.95em;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.mos-onboard-input-row {
+  margin-top: 16px;
+  width: 100%;
+  max-width: 300px;
+}
+
+.mos-onboard-folder-input {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--mos-radius-md);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  font-size: 0.95em;
+  text-align: center;
+}
+
+.mos-onboard-folder-input:focus {
+  outline: none;
+  border-color: var(--mos-system);
+}
+
+.mos-onboard-btn {
+  margin-top: 16px;
+  padding: 10px 28px;
+  border: none;
+  border-radius: 20px;
+  background: var(--mos-system);
+  color: var(--background-primary);
+  font-size: 0.95em;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity var(--mos-transition);
+}
+
+.mos-onboard-btn:hover {
+  opacity: 0.85;
+}
+
+.mos-onboard-terminal {
+  width: 100%;
+  max-width: 500px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--mos-radius-md);
+  padding: 20px 24px;
+  text-align: left;
+  font-family: var(--font-monospace);
+  font-size: 0.82em;
+  line-height: 1.8;
+  color: var(--text-muted);
+  margin-top: 24px;
+}
+
+.mos-onboard-line {
+  opacity: 0;
+  animation: mos-line-appear 0.15s forwards;
+}
+
+@keyframes mos-line-appear {
+  to { opacity: 1; }
+}
+
+.mos-onboard-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: color-mix(in srgb, var(--mos-blue) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--mos-blue) 20%, transparent);
+  border-radius: var(--mos-radius-md);
+  font-size: 0.85em;
+  color: var(--text-muted);
+}
+
+.mos-onboard-banner-dismiss {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 1.1em;
+  padding: 2px 6px;
+  margin-left: auto;
+  border-radius: var(--mos-radius-sm);
+  transition: background var(--mos-transition);
+}
+
+.mos-onboard-banner-dismiss:hover {
+  background: var(--background-modifier-hover);
+}
+
+/* ── Utility ── */
+/* Settings number inputs */
+.mos-number-input-sm {
+  width: 60px;
+}
+
+/* Floating actions visibility states */
+.morning-os-floating-actions.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0);
+}
+
+/* Feedback modal close button */
+.mos-feedback-close-btn {
+  margin-top: 16px;
+}
+
+/* ── Urgency dot ── */
+.mos-urgency-dot {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  font-size: 9px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  opacity: 0.85;
+}
+
+/* ── View title row — sort + filters ── */
+.mos-view-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.mos-view-title-row h1 {
+  flex: 1;
+  margin: 0;
+}
+
+/* ── Area view title ── */
+.mos-area-title {
+  font-size: 1.8em;
+  font-weight: 600;
+  color: var(--text-normal);
+  margin: 0 0 12px 0;
+  line-height: 1.2;
+}
+
+/* ── Area control row: tabs + sort/filter ── */
+.mos-area-control-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.mos-area-control-row .mos-area-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex: 1;
+}
+.mos-sort-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+/* ── Settings tab bar ── */
+.mos-settings-tab-bar {
+  display: flex;
+  gap: 4px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.mos-settings-tab {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  font: inherit;
+  margin: 0;
+  text-align: inherit;
+  text-transform: none;
+  box-sizing: border-box;
+  padding: 6px 14px;
+  border-radius: var(--mos-radius-sm);
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--mos-text-secondary);
+  background: color-mix(in srgb, var(--text-normal) 6%, transparent);
+  transition: background 120ms ease, color 120ms ease;
+}
+.mos-settings-tab:hover { background: color-mix(in srgb, var(--mos-system) 15%, transparent); color: var(--mos-system); }
+.mos-settings-tab.is-active { background: var(--mos-system); color: #fff; }
+
+/* ── Area builder — two-panel ── */
+.mos-areas-layout {
+  display: flex;
+  gap: 0;
+  min-height: 400px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--mos-radius-md);
+  overflow: hidden;
+}
+.mos-areas-left {
+  width: 220px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--background-modifier-border);
+  background: color-mix(in srgb, var(--text-normal) 3%, transparent);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.mos-areas-right {
+  flex: 1;
+  padding: 16px;
+  overflow-y: auto;
+}
+.mos-areas-nav-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.mos-areas-nav-item {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  padding: 7px 10px;
+  border-radius: var(--mos-radius-sm);
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 120ms ease, color 120ms ease;
+}
+.mos-areas-nav-item:hover { background: color-mix(in srgb, var(--mos-system) 12%, transparent); color: var(--mos-system); }
+.mos-areas-nav-item.is-active { background: var(--mos-system); color: #fff; }
+.mos-areas-reorder {
+  display: none;
+  gap: 2px;
+}
+.mos-areas-nav-row:hover .mos-areas-reorder { display: flex; }
+.mos-areas-nav-divider {
+  height: 1px;
+  background: var(--background-modifier-border);
+  margin: 6px 0;
+}
+.mos-areas-add-row {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.mos-icon-input { width: 48px; text-align: center; }
+.mos-areas-empty {
+  color: var(--mos-text-faint);
+  font-style: italic;
+  font-size: 13px;
+  margin-top: 40px;
+  text-align: center;
+}
+.mos-areas-detail-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.mos-areas-detail-preview {
+  font-size: 18px;
+  font-weight: 600;
+  flex: 1;
+}
+.mos-btn.mos-btn-danger { color: var(--mos-red); }
+.mos-btn.mos-btn-danger:hover { background: color-mix(in srgb, var(--mos-red) 15%, transparent); }
+.mos-areas-sub-heading {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--mos-text-faint);
+  margin: 14px 0 6px;
+}
+.mos-areas-tab-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.mos-areas-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border-radius: var(--mos-radius-sm);
+  font-size: 12px;
+  cursor: pointer;
+  background: color-mix(in srgb, var(--text-normal) 6%, transparent);
+  color: var(--mos-text-secondary);
+  transition: background 120ms ease, color 120ms ease;
+}
+.mos-areas-tab-btn:hover { background: color-mix(in srgb, var(--mos-system) 15%, transparent); color: var(--mos-system); }
+.mos-areas-tab-btn.is-active { background: var(--mos-system); color: #fff; }
+.mos-areas-tab-detail {
+  padding: 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--mos-radius-sm);
+  margin-bottom: 12px;
+  background: color-mix(in srgb, var(--text-normal) 2%, transparent);
+}
+.mos-icon-picker-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  color: inherit;
+  font: inherit;
+  margin: 0;
+  text-align: inherit;
+  text-transform: none;
+  font-size: 24px;
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: var(--mos-radius-sm);
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  line-height: 1.4;
+}
+.mos-icon-picker-btn:hover { border-color: var(--mos-system); }
+
+.mos-emoji-picker-wrap {
+  margin-top: 8px;
+}
+.mos-emoji-picker-wrap .mos-emoji-picker {
+  --border-radius: var(--mos-radius-md);
+  --background: var(--background-secondary);
+  --border-color: var(--background-modifier-border);
+  width: 100%;
+  max-width: 340px;
+}
+
+.mos-area-builder-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0;
+  flex-wrap: wrap;
+}
+.mos-area-builder-icon { font-size: 18px; width: 24px; }
+.mos-area-builder-label { flex: 1; font-size: 13px; }
+
+/* ── Record cards ── */
+.mos-record-card {
+  border-radius: var(--mos-radius-sm);
+  border: 1px solid var(--background-modifier-border);
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+.mos-record-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--text-normal) 3%, transparent);
+  cursor: pointer;
+}
+.mos-record-toggle { font-size: 10px; color: var(--mos-text-faint); flex-shrink: 0; }
+.mos-record-name { font-size: 13px; font-weight: 500; flex: 1; }
+.mos-record-meta { display: flex; flex-wrap: wrap; gap: 4px; }
+.mos-meta-chip {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--mos-system) 12%, transparent);
+  color: var(--mos-system);
+}
+.mos-record-body { padding: 10px 12px; }
+.mos-record-description {
+  font-size: 13px;
+  color: var(--mos-text-secondary);
+  margin-bottom: 10px;
+  cursor: text;
+  white-space: pre-wrap;
+}
+.mos-record-description-edit {
+  width: 100%;
+  min-height: 60px;
+  margin-bottom: 10px;
+}
+.mos-record-children { margin-top: 8px; }
+
+/* ── Filter selects — same style as sort, sit in title row ── */
+select.mos-btn.mos-btn-select.mos-filter-select {
+  font-size: 11px;
+  padding: 4px 22px 4px 8px;
+}
+
+/* ── Task action bar — visible on hover ── */
+.mos-task-action-bar {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.morning-os-task-row:hover .mos-task-action-bar,
+.mos-table-row:hover .mos-task-action-bar {
+  opacity: 1;
+}
+.mos-action-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  background: none;
+  border: none;
+  font: inherit;
+  margin: 0;
+  padding: 0;
+  text-align: inherit;
+  text-transform: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--mos-radius-sm);
+  font-size: 14px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.mos-action-btn:hover {
+  background: color-mix(in srgb, var(--mos-system) 20%, transparent);
+  color: var(--mos-system);
+}
+.mos-action-btn-red:hover {
+  background: color-mix(in srgb, var(--mos-red) 20%, transparent);
+  color: var(--mos-red);
+}
+.mos-action-btn-danger:hover {
+  background: color-mix(in srgb, var(--mos-red) 15%, transparent);
+  color: var(--mos-red);
+}
+
+/* ── (removed: mos-more-btn replaced by mos-task-action-bar) ── */
+
+/* ── Context menu ── */
+.mos-ctx-menu {
+  --mos-system: #4a9d7f;
+  --mos-red: #e5534b;
+  --mos-radius-sm: 6px;
+  min-width: 180px;
+  background: color-mix(in srgb, var(--background-primary) 85%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid color-mix(in srgb, var(--text-normal) 12%, transparent);
+  border-radius: var(--mos-radius-md);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--text-normal) 12%, transparent);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.mos-ctx-menu button.mos-ctx-item {
+  appearance: none;
+  -webkit-appearance: none;
+  background: none;
+  border: none;
+  font: inherit;
+  margin: 0;
+  text-align: inherit;
+  text-transform: none;
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-normal, #dcddde);
+  cursor: pointer;
+  transition: background 100ms ease, color 100ms ease;
+}
+.mos-ctx-menu button.mos-ctx-item:hover {
+  background: #4a9d7f;
+  color: #fff;
+}
+.mos-ctx-menu button.mos-ctx-item.mos-ctx-item-danger {
+  color: #e5534b;
+}
+.mos-ctx-menu button.mos-ctx-item.mos-ctx-item-danger:hover {
+  background: #e5534b;
+  color: #fff;
+}
+
+/* ── Task edit modal ── */
+.mos-edit-modal {
+  padding: 4px;
+}
+.mos-edit-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: var(--text-normal);
+}
+.mos-edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.mos-edit-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--mos-text-faint);
+}
+.mos-edit-input {
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: var(--mos-radius-sm);
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  font-size: 13px;
+}
+.mos-edit-input:focus {
+  outline: none;
+  border-color: var(--mos-system);
+}
+.mos-edit-textarea {
+  min-height: 80px;
+  resize: vertical;
+  font-family: inherit;
+}
+.mos-edit-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.mos-edit-btn-group {
+  display: flex;
+  gap: 4px;
+}
+/* mos-edit-seg-btn → now .mos-btn.mos-btn-seg */
+.mos-edit-areas-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.mos-edit-area-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.mos-edit-area-label {
+  font-size: 13px;
+  color: var(--text-normal);
+  flex: 1;
+}
+/* mos-edit-select → now .mos-btn.mos-btn-select */
+.mos-edit-footer {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 20px;
+  padding-top: 12px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+/* ── Table View ── */
+.mos-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+  margin-top: 12px;
+}
+.mos-table-th {
+  text-align: left;
+  padding: 8px 10px;
+  font-weight: 600;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+.mos-table-td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--background-modifier-border-hover, rgba(255,255,255,0.04));
+  vertical-align: middle;
+}
+.mos-table-row:hover {
+  background: var(--background-modifier-hover);
+}
+.mos-table-row-done .mos-table-name span {
+  text-decoration: line-through;
+  opacity: 0.5;
+}
+.mos-table-check { width: 32px; text-align: center; }
+.mos-table-actions { width: 40px; text-align: center; }
+.mos-table-name { font-weight: 500; }
+.mos-table-empty { opacity: 0.35; }
+.mos-table-select {
+  background: transparent;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 0.82rem;
+  color: var(--text-normal);
+}
+.mos-table-date-input {
+  background: transparent;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 0.82rem;
+  color: var(--text-normal);
+}
+.mos-table-inline-edit {
+  background: var(--background-primary);
+  border: 1px solid var(--mos-system);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 0.88rem;
+  color: var(--text-normal);
+  width: 100%;
+}
+.mos-table-add-row {
+  margin-top: 8px;
+}
+
+/* ── Meta chips on task rows ── */
+.mos-task-meta-chips {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: 8px;
+  flex-wrap: wrap;
+}
+.mos-task-meta-chips .mos-meta-chip {
+  font-size: 0.72rem;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--mos-system-dim);
+  color: var(--text-muted);
+}
+
+.mos-task-progress {
+  display: grid;
+  grid-template-columns: auto auto minmax(100px, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  margin: -3px 0 8px 38px;
+  color: var(--mos-text-secondary);
+  font-size: 0.78em;
+}
+.mos-task-progress-bar { height: 5px; overflow: hidden; border-radius: 999px; background: var(--background-modifier-border); }
+.mos-task-progress-fill { height: 100%; background: var(--mos-system); border-radius: inherit; }
+.mos-progress-target-input { width: 96px; padding: 5px 7px; border: 1px solid var(--background-modifier-border); border-radius: var(--mos-radius-sm); background: var(--background-primary); }
+.mos-progress-edit-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 6px; }
+.mos-progress-edit-fields.is-hidden { display: none; }
+
+/* ── Pipeline stage bar (Start → Working → Collecting → Complete) ── */
+.mos-pipeline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -3px 0 8px 38px;
+}
+.mos-pipeline-bar {
+  display: flex;
+  gap: 3px;
+  flex: 0 1 180px;
+  min-width: 90px;
+}
+.mos-pipeline-segment {
+  flex: 1;
+  height: 5px;
+  padding: 6px 0; /* taller hit area, visual bar stays 5px via background-clip */
+  border: none;
+  border-radius: 999px;
+  background: var(--background-modifier-border);
+  background-clip: content-box;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+.mos-pipeline-segment:hover { background-color: var(--background-modifier-border-hover); }
+.mos-pipeline-segment.is-filled { background-color: var(--mos-system); }
+.mos-pipeline-segment.is-filled:hover { background-color: var(--mos-system); filter: brightness(1.15); }
+.mos-pipeline-segment.is-active { box-shadow: 0 0 0 1px var(--mos-system-glow); }
+.mos-pipeline-label {
+  color: var(--mos-text-secondary);
+  font-size: 0.78em;
+  white-space: nowrap;
+}
+
+/* In-flight summary board */
+.mos-pipeline-board { padding: 10px 14px; }
+.mos-pipeline-counts { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.mos-pipeline-count {
+  font-size: 0.72rem;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--mos-system-dim);
+  color: var(--mos-text-secondary);
+}
+.mos-pipeline-board-row { padding: 4px 0; }
+.mos-pipeline-board-row + .mos-pipeline-board-row { border-top: 1px solid var(--background-modifier-border); }
+.mos-pipeline-board-row .mos-pipeline { margin: 2px 0 2px 0; }
+.mos-pipeline-board-project {
+  margin-left: 8px;
+  font-size: 0.72rem;
+  color: var(--mos-text-secondary);
+}
+
+@media (max-width: 520px) {
+  .mos-pipeline { margin-left: 0; }
+}
+
+/* ── Field options row in settings ── */
+.mos-field-options-row {
+  padding-left: 24px;
+  align-items: center;
+  gap: 8px;
+}
+.mos-field-options-row .mos-edit-label {
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+.mos-field-options-hidden {
+  display: none;
+}
+
+/* ── Edit modal field rows ── */
+.mos-edit-field-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+/* ── Area Notes Section ── */
+.mos-area-notes {
+  margin-bottom: 16px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  background: var(--background-primary-alt);
+}
+.mos-area-notes-header {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.mos-area-notes-toggle {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-right: 6px;
+  flex-shrink: 0;
+}
+.mos-area-notes-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.mos-area-notes-body {
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+.mos-area-notes-body-collapsed {
+  display: none;
+}
+.mos-area-notes-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0;
+}
+.mos-area-notes-body th,
+.mos-area-notes-body td {
+  padding: 4px 8px;
+  border: 1px solid var(--background-modifier-border);
+  text-align: left;
+}
+.mos-area-notes-body th {
+  font-weight: 600;
+  background: var(--background-modifier-hover);
+}
+
+/* ── Inline field options input in settings ── */
+.mos-field-options-inline {
+  flex: 1;
+  font-size: 0.8rem;
+}
+/* mos-edit-save/cancel-btn → now .mos-btn.mos-btn-primary / .mos-btn */
