@@ -1,5 +1,7 @@
 # Morning OS
 
+**语言 / Language：中文 | [English](README.en.md)**
+
 > 一个以执行、复盘和连续性为核心的 Obsidian 晨间工作台。
 
 这是基于 [Satya Akhil Galla 的 Morning OS](https://github.com/satyagalla/Morning-OS-obsidian) 定制的研究/工作流版本。它在原有 Home、Inbox、Areas 和 Trash 之上，加入 Focus、任务管线、项目推进、专注计时、Routines、进度记录、Daily Note 工作日志，以及需要审查后才能写入的 AI 助手。
